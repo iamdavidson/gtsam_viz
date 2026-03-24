@@ -45,7 +45,7 @@ public:
     float axisLength        = 0.5f;
     float nodeSize          = 0.12f;
     float covScale          = 3.0f;    ///< σ multiplier for covariance ellipsoids
-    glm::vec4 bgColor       = {0.07f, 0.08f, 0.10f, 1.f};
+    glm::vec4 bgColor       = {0.120f, 0.118f, 0.118f, 1.f};  // slightly deeper than #2B2A2A
 
     // ── Grid settings ─────────────────────────────────────────────────────────
     int   gridHalf          = 30;      ///< Half-extent in grid steps

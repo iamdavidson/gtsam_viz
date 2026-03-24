@@ -2,11 +2,49 @@
 #include <imgui.h>
 #include <string>
 #include <cmath>
+#include <fstream>
+#include <sstream>
 
 namespace gtsam_viz {
 
+// ── CameraSettings save / load ────────────────────────────────────────────────
+void CameraSettings::save(const std::string& path) const {
+    std::ofstream f(path);
+    if (!f) return;
+    f << "orbitSensitivity="      << orbitSensitivity      << "\n";
+    f << "zoomScrollSensitivity=" << zoomScrollSensitivity  << "\n";
+    f << "zoomDragSensitivity="   << zoomDragSensitivity    << "\n";
+    f << "panSensitivity="        << panSensitivity         << "\n";
+    f << "shiftPanSensitivity="   << shiftPanSensitivity    << "\n";
+    f << "wasdSensitivity="       << wasdSensitivity        << "\n";
+}
+
+void CameraSettings::load(const std::string& path) {
+    std::ifstream f(path);
+    if (!f) return;
+    std::string line;
+    while (std::getline(f, line)) {
+        auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = line.substr(0, eq);
+        try {
+            float val = std::stof(line.substr(eq + 1));
+            if      (key == "orbitSensitivity")      orbitSensitivity      = val;
+            else if (key == "zoomScrollSensitivity")  zoomScrollSensitivity = val;
+            else if (key == "zoomDragSensitivity")    zoomDragSensitivity   = val;
+            else if (key == "panSensitivity")         panSensitivity        = val;
+            else if (key == "shiftPanSensitivity")    shiftPanSensitivity   = val;
+            else if (key == "wasdSensitivity")        wasdSensitivity       = val;
+        } catch (...) {}
+    }
+}
+
+// ── Viewport3DPanel ───────────────────────────────────────────────────────────
 Viewport3DPanel::Viewport3DPanel(FactorGraphState& state, Renderer3D& renderer)
-    : state_(state), renderer_(renderer) {}
+    : state_(state), renderer_(renderer)
+{
+    cfg_.load("settings.cfg");
+}
 
 void Viewport3DPanel::draw() {
     drawToolbar();
@@ -31,13 +69,13 @@ void Viewport3DPanel::draw() {
              cam.yaw, cam.pitch, cam.distance,
              renderer_.followMode ? "  [FOLLOW]" : "");
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddText({imgPos.x+8, imgPos.y+8}, IM_COL32(180,210,240,210), info);
+    dl->AddText({imgPos.x+8, imgPos.y+8}, IM_COL32(245,242,242,200), info);
 
     // Key hint overlay (bottom-left)
-    const char* hint = "LMB: Orbit  MMB: Pan  RMB: Zoom  Scroll: Zoom  WASD/Arrows: Pan";
+    const char* hint = "LMB: Orbit  Shift+LMB / MMB: Pan  RMB: Zoom  Scroll: Zoom  WASD/Arrows: Pan  Ctrl+S: Save";
     ImVec2 hintSz = ImGui::CalcTextSize(hint);
     dl->AddText({imgPos.x+8, imgPos.y+avail.y-hintSz.y-6},
-                IM_COL32(120,130,150,160), hint);
+                IM_COL32(160,155,155,150), hint);
 }
 
 void Viewport3DPanel::drawToolbar() {
@@ -82,6 +120,31 @@ void Viewport3DPanel::drawToolbar() {
     ImGui::Separator();
 }
 
+void Viewport3DPanel::drawSettings() {
+    ImGui::SeparatorText("Camera Sensitivity");
+    ImGui::Spacing();
+
+    ImGui::SetNextItemWidth(200);
+    ImGui::SliderFloat("Orbit  (LMB drag)",   &cfg_.orbitSensitivity,      0.05f,  2.0f,  "%.3f");
+    ImGui::SetNextItemWidth(200);
+    ImGui::SliderFloat("Zoom   (Scroll)",     &cfg_.zoomScrollSensitivity, 0.01f,  0.50f, "%.3f");
+    ImGui::SetNextItemWidth(200);
+    ImGui::SliderFloat("Zoom   (RMB drag)",   &cfg_.zoomDragSensitivity,   0.001f, 0.02f, "%.4f");
+    ImGui::SetNextItemWidth(200);
+    ImGui::SliderFloat("Pan    (MMB drag)",   &cfg_.panSensitivity,        0.001f, 0.05f, "%.4f");
+    ImGui::SetNextItemWidth(200);
+    ImGui::SliderFloat("Pan    (Shift+LMB)",  &cfg_.shiftPanSensitivity,   0.001f, 0.02f, "%.4f");
+    ImGui::SetNextItemWidth(200);
+    ImGui::SliderFloat("WASD / Pfeiltasten",  &cfg_.wasdSensitivity,       0.05f,  5.0f,  "%.2f");
+
+    ImGui::Spacing();
+    if (ImGui::Button("Defaults zurücksetzen"))
+        cfg_ = CameraSettings{};
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Ctrl+S  –  Einstellungen speichern");
+}
+
 void Viewport3DPanel::handleCameraInput(ImVec2 imagePos, ImVec2 imageSize) {
     ImGuiIO& io   = ImGui::GetIO();
     ImVec2   mpos = io.MousePos;
@@ -90,48 +153,66 @@ void Viewport3DPanel::handleCameraInput(ImVec2 imagePos, ImVec2 imageSize) {
     bool hovered = mpos.x >= imagePos.x && mpos.x < imagePos.x + imageSize.x &&
                    mpos.y >= imagePos.y && mpos.y < imagePos.y + imageSize.y;
 
-    // ── Mouse: RViz2-style ────────────────────────────────────────────────────
-    // Left drag  → orbit
-    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))  orbiting_ = true;
-    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))             orbiting_ = false;
-    if (orbiting_ && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-        cam.orbit(io.MouseDelta.x * 0.4f, -io.MouseDelta.y * 0.4f);
-        renderer_.followMode = false;  // disable follow on manual orbit
+    // ── Mouse ─────────────────────────────────────────────────────────────────
+    // Shift+LMB → pan;  plain LMB → orbit
+    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        if (io.KeyShift) shiftPanning_ = true;
+        else             orbiting_     = true;
+    }
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        orbiting_     = false;
+        shiftPanning_ = false;
     }
 
-    // Middle drag → pan
+    // Orbit (LMB, no Shift)
+    if (orbiting_ && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        cam.orbit(io.MouseDelta.x * cfg_.orbitSensitivity,
+                 -io.MouseDelta.y * cfg_.orbitSensitivity);
+    }
+
+    // Pan: MMB drag  (Camera::pan internally scales by distance * 0.01,
+    // so we normalise the user factor against that baseline)
     if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) panning_ = true;
     if (ImGui::IsMouseReleased(ImGuiMouseButton_Middle))            panning_ = false;
+
     if (panning_ && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
-        cam.pan({io.MouseDelta.x, io.MouseDelta.y});
-        renderer_.followMode = false;
+        float s = cfg_.panSensitivity / 0.01f;
+        cam.pan({io.MouseDelta.x * s, io.MouseDelta.y * s});
     }
 
-    // Right drag → zoom (RViz2 style: right mouse = dolly)
+    // Pan: Shift+LMB (lower sensitivity by default)
+    if (shiftPanning_ && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        float s = cfg_.shiftPanSensitivity / 0.01f;
+        cam.pan({io.MouseDelta.x * s, io.MouseDelta.y * s});
+    }
+
+    // Right drag → zoom (dolly)
     if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
-        float delta = -io.MouseDelta.y * cam.distance * 0.005f;
+        float delta = -io.MouseDelta.y * cam.distance * cfg_.zoomDragSensitivity;
         cam.zoom(delta);
     }
 
     // Scroll → zoom
     if (hovered && io.MouseWheel != 0) {
-        cam.zoom(io.MouseWheel * cam.distance * 0.1f);
+        cam.zoom(io.MouseWheel * cam.distance * cfg_.zoomScrollSensitivity);
     }
 
-    // ── Keyboard: WASD / Arrow keys (only when viewport is hovered) ───────────
-    if (hovered && !io.WantCaptureKeyboard) {
-        float dt       = io.DeltaTime;
+    // ── Keyboard: WASD / Arrow keys ──────────────────────────────────────────
+    // IsWindowFocused instead of WantCaptureKeyboard so keys always work when
+    // the viewport is the active panel.
+    bool winFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    if (hovered && winFocused) {
+        float dt   = io.DeltaTime;
         float fwd  = 0.f, rght = 0.f;
 
-        if (ImGui::IsKeyDown(ImGuiKey_W)     || ImGui::IsKeyDown(ImGuiKey_UpArrow))    fwd  += dt;
-        if (ImGui::IsKeyDown(ImGuiKey_S)     || ImGui::IsKeyDown(ImGuiKey_DownArrow))  fwd  -= dt;
-        if (ImGui::IsKeyDown(ImGuiKey_D)     || ImGui::IsKeyDown(ImGuiKey_RightArrow)) rght += dt;
-        if (ImGui::IsKeyDown(ImGuiKey_A)     || ImGui::IsKeyDown(ImGuiKey_LeftArrow))  rght -= dt;
+        if (ImGui::IsKeyDown(ImGuiKey_W)         || ImGui::IsKeyDown(ImGuiKey_UpArrow))    fwd  -= dt;
+        if (ImGui::IsKeyDown(ImGuiKey_S)         || ImGui::IsKeyDown(ImGuiKey_DownArrow))  fwd  += dt;
+        if (ImGui::IsKeyDown(ImGuiKey_D)         || ImGui::IsKeyDown(ImGuiKey_RightArrow)) rght -= dt;
+        if (ImGui::IsKeyDown(ImGuiKey_A)         || ImGui::IsKeyDown(ImGuiKey_LeftArrow))  rght += dt;
 
-        if (fwd != 0.f || rght != 0.f) {
-            cam.moveGround(fwd, rght);
-            renderer_.followMode = false;
-        }
+        if (fwd != 0.f || rght != 0.f)
+            cam.moveGround(fwd * cfg_.wasdSensitivity,
+                           rght * cfg_.wasdSensitivity);
     }
 }
 

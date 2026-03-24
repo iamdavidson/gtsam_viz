@@ -392,7 +392,7 @@ void Renderer3D::drawGrid() {
     glm::mat4 VP = cam_.projection(aspect) * cam_.view();
     glUseProgram(flatProg_);
     setUniformMat4(flatProg_, "uMVP",   VP);
-    setUniformVec4(flatProg_, "uColor", {0.20f,0.22f,0.26f,1.f});
+    setUniformVec4(flatProg_, "uColor", {0.260f,0.250f,0.250f,1.f});
     glBindVertexArray(gridVao_);
     glLineWidth(1.f);
     glDrawArrays(GL_LINES, 0, gridVerts_);

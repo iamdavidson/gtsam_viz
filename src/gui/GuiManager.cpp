@@ -35,6 +35,11 @@ void GuiManager::draw() {
     drawMainMenuBar();
     drawDockspace();
 
+    // ── Global shortcuts ──────────────────────────────────────────────────────
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S))
+        saveSettings();
+
     // Poll IPC server (~60 Hz) — receives frames from the SLAM backend process
     if (server_ && !bridgePanel_->isPaused())
         server_->poll(state_);
@@ -69,6 +74,13 @@ void GuiManager::draw() {
     }
     ImGui::End();
 
+    // ── Settings panel ────────────────────────────────────────────────────────
+    ImGui::SetNextWindowSize({320,280}, ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Settings##panel")) {
+        drawSettingsWindow();
+    }
+    ImGui::End();
+
     if (showAbout_)     drawAboutWindow();
     if (showImGuiDemo_) ImGui::ShowDemoWindow(&showImGuiDemo_);
     if (showImPlotDemo_)ImPlot::ShowDemoWindow(&showImPlotDemo_);
@@ -96,6 +108,8 @@ void GuiManager::drawMainMenuBar() {
     }
 
     if (ImGui::BeginMenu("View")) {
+        if (ImGui::MenuItem("Settings",    "Ctrl+S")) saveSettings();
+        ImGui::Separator();
         if (ImGui::MenuItem("ImGui Demo"))  showImGuiDemo_  = true;
         if (ImGui::MenuItem("ImPlot Demo")) showImPlotDemo_ = true;
         ImGui::EndMenu();
@@ -110,7 +124,7 @@ void GuiManager::drawMainMenuBar() {
     double err = state_.values().empty() ? 0.0 : state_.totalError();
     const char* connStr = ipcServer_.isConnected() ? "● BACKEND" : "○ no backend";
     ImVec4 connCol = ipcServer_.isConnected()
-        ? ImVec4{0.2f,0.95f,0.4f,1.f} : ImVec4{0.5f,0.5f,0.55f,1.f};
+        ? ImVec4{0.996f,0.690f,0.365f,1.f} : ImVec4{0.45f,0.43f,0.43f,1.f};
     char buf[120];
     snprintf(buf, sizeof(buf), "Vars: %zu  Factors: %zu  Error: %.5f",
              state_.variables().size(), state_.factors().size(), err);
@@ -163,14 +177,18 @@ void GuiManager::drawDockspace() {
         ImGuiID viewport, logStrip;
         ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.15f, &logStrip, &viewport);
 
-        // Right sidebar: Bridge (top ~35%) + Stats (bottom ~65%)
-        ImGuiID bridgeNode, statsNode;
-        ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.65f, &statsNode, &bridgeNode);
+        // Right sidebar: Bridge (top ~25%) + Stats (middle ~45%) + Settings (bottom ~30%)
+        ImGuiID bridgeNode, statsSettings;
+        ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.75f, &statsSettings, &bridgeNode);
+
+        ImGuiID statsNode, settingsNode;
+        ImGui::DockBuilderSplitNode(statsSettings, ImGuiDir_Down, 0.40f, &settingsNode, &statsNode);
 
         ImGui::DockBuilderDockWindow("3D Viewport##panel",  viewport);
         ImGui::DockBuilderDockWindow("Log##panel",          logStrip);
         ImGui::DockBuilderDockWindow("Live Bridge##panel",  bridgeNode);
         ImGui::DockBuilderDockWindow("Stats##panel",        statsNode);
+        ImGui::DockBuilderDockWindow("Settings##panel",     settingsNode);
         ImGui::DockBuilderFinish(dockspaceId_);
     }
 
@@ -186,66 +204,133 @@ void GuiManager::drawAboutWindow() {
                        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse))
     { ImGui::End(); return; }
 
-    ImGui::TextColored({0.4f,0.85f,1.f,1.f}, "GTSAMViz  v1.0.0");
+    ImGui::TextColored({0.353f,0.478f,0.804f,1.f}, "GTSAMViz  v1.0.0");
     ImGui::Separator(); ImGui::Spacing();
     ImGui::TextWrapped(
         "Live 3D visualizer for GTSAM factor graphs.\n\n"
         "Controls:\n"
-        "  LMB drag  – Orbit\n"
-        "  MMB drag  – Pan\n"
-        "  RMB drag  – Zoom (dolly)\n"
-        "  Scroll    – Zoom\n"
-        "  WASD / Arrows – Pan on ground plane");
+        "  LMB drag        – Orbit\n"
+        "  Shift+LMB drag  – Pan\n"
+        "  MMB drag        – Pan\n"
+        "  RMB drag        – Zoom (dolly)\n"
+        "  Scroll          – Zoom\n"
+        "  WASD / Arrows   – Pan on ground plane");
     ImGui::Spacing();
     if (ImGui::Button("Close")) showAbout_ = false;
     ImGui::End();
 }
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
+// Palette:
+//   #2B2A2A  (0.169, 0.165, 0.165)  – dominant dark base
+//   #F5F2F2  (0.961, 0.949, 0.949)  – off-white text / light surfaces
+//   #5A7ACD  (0.353, 0.478, 0.804)  – blue accent (interactive)
+//   #FEB05D  (0.996, 0.690, 0.365)  – orange accent (highlights / marks)
 void GuiManager::applyDarkTheme() {
     ImGuiStyle& s = ImGui::GetStyle();
-    s.WindowRounding = 4.f; s.FrameRounding = 3.f;
-    s.ScrollbarRounding = 4.f; s.GrabRounding = 3.f; s.TabRounding = 3.f;
-    s.WindowBorderSize = 1.f; s.FrameBorderSize = 0.f;
-    s.ItemSpacing = {6,4}; s.FramePadding = {6,3};
+    s.WindowRounding    = 4.f;  s.FrameRounding  = 3.f;
+    s.ScrollbarRounding = 4.f;  s.GrabRounding   = 3.f;
+    s.TabRounding       = 3.f;  s.PopupRounding  = 3.f;
+    s.WindowBorderSize  = 1.f;  s.FrameBorderSize = 0.f;
+    s.ItemSpacing       = {6,4}; s.FramePadding  = {6,3};
+
+    // ── colour aliases ────────────────────────────────────────────────────────
+    // base
+    constexpr ImVec4 kBase      = {0.169f, 0.165f, 0.165f, 1.f};   // #2B2A2A
+    constexpr ImVec4 kBaseDark  = {0.120f, 0.118f, 0.118f, 1.f};   // darker variant
+    constexpr ImVec4 kBaseLight = {0.220f, 0.216f, 0.216f, 1.f};   // lighter variant
+    constexpr ImVec4 kBorder    = {0.320f, 0.310f, 0.310f, 1.f};
+    // text
+    constexpr ImVec4 kText      = {0.961f, 0.949f, 0.949f, 1.f};   // #F5F2F2
+    constexpr ImVec4 kTextDim   = {0.540f, 0.520f, 0.520f, 1.f};
+    // blue accent   #5A7ACD
+    constexpr ImVec4 kBlue      = {0.353f, 0.478f, 0.804f, 1.f};
+    constexpr ImVec4 kBlueMid   = {0.280f, 0.380f, 0.640f, 1.f};
+    constexpr ImVec4 kBlueDim   = {0.210f, 0.285f, 0.480f, 0.8f};
+    constexpr ImVec4 kBlueFaint = {0.210f, 0.285f, 0.480f, 0.4f};
+    // orange accent #FEB05D
+    constexpr ImVec4 kOrange    = {0.996f, 0.690f, 0.365f, 1.f};
+    constexpr ImVec4 kOrangeDim = {0.780f, 0.540f, 0.285f, 1.f};
 
     ImVec4* c = s.Colors;
-    c[ImGuiCol_WindowBg]           = {0.09f,0.10f,0.12f,1.f};
-    c[ImGuiCol_ChildBg]            = {0.10f,0.11f,0.14f,1.f};
-    c[ImGuiCol_PopupBg]            = {0.10f,0.11f,0.14f,0.97f};
-    c[ImGuiCol_Border]             = {0.22f,0.24f,0.30f,1.f};
-    c[ImGuiCol_Header]             = {0.20f,0.40f,0.72f,0.5f};
-    c[ImGuiCol_HeaderHovered]      = {0.26f,0.52f,0.90f,0.7f};
-    c[ImGuiCol_HeaderActive]       = {0.26f,0.52f,0.90f,1.f};
-    c[ImGuiCol_Button]             = {0.20f,0.36f,0.60f,0.8f};
-    c[ImGuiCol_ButtonHovered]      = {0.30f,0.50f,0.82f,1.f};
-    c[ImGuiCol_ButtonActive]       = {0.14f,0.28f,0.55f,1.f};
-    c[ImGuiCol_FrameBg]            = {0.15f,0.17f,0.22f,1.f};
-    c[ImGuiCol_FrameBgHovered]     = {0.20f,0.24f,0.32f,1.f};
-    c[ImGuiCol_FrameBgActive]      = {0.10f,0.16f,0.28f,1.f};
-    c[ImGuiCol_TitleBg]            = {0.08f,0.09f,0.12f,1.f};
-    c[ImGuiCol_TitleBgActive]      = {0.12f,0.22f,0.40f,1.f};
-    c[ImGuiCol_MenuBarBg]          = {0.07f,0.08f,0.10f,1.f};
-    c[ImGuiCol_ScrollbarBg]        = {0.07f,0.08f,0.10f,1.f};
-    c[ImGuiCol_ScrollbarGrab]      = {0.24f,0.28f,0.36f,1.f};
-    c[ImGuiCol_CheckMark]          = {0.36f,0.72f,1.00f,1.f};
-    c[ImGuiCol_SliderGrab]         = {0.36f,0.60f,0.90f,1.f};
-    c[ImGuiCol_SliderGrabActive]   = {0.50f,0.75f,1.00f,1.f};
-    c[ImGuiCol_Tab]                = {0.12f,0.20f,0.34f,0.9f};
-    c[ImGuiCol_TabHovered]         = {0.28f,0.50f,0.82f,1.f};
-    c[ImGuiCol_TabActive]          = {0.20f,0.38f,0.68f,1.f};
-    c[ImGuiCol_TabUnfocused]       = {0.09f,0.13f,0.20f,0.9f};
-    c[ImGuiCol_TabUnfocusedActive] = {0.14f,0.24f,0.42f,1.f};
-    c[ImGuiCol_DockingPreview]     = {0.36f,0.60f,0.90f,0.7f};
-    c[ImGuiCol_Separator]          = {0.20f,0.24f,0.32f,1.f};
-    c[ImGuiCol_Text]               = {0.88f,0.90f,0.95f,1.f};
-    c[ImGuiCol_TextDisabled]       = {0.40f,0.45f,0.55f,1.f};
-    c[ImGuiCol_PlotHistogram]      = {0.36f,0.72f,1.00f,1.f};
-    c[ImGuiCol_PlotLines]          = {0.36f,0.72f,1.00f,1.f};
-    c[ImGuiCol_TableHeaderBg]      = {0.12f,0.18f,0.28f,1.f};
-    c[ImGuiCol_TableBorderLight]   = {0.18f,0.22f,0.30f,1.f};
-    c[ImGuiCol_TableRowBg]         = {0.00f,0.00f,0.00f,0.f};
-    c[ImGuiCol_TableRowBgAlt]      = {1.00f,1.00f,1.00f,0.03f};
+    // backgrounds
+    c[ImGuiCol_WindowBg]           = kBase;
+    c[ImGuiCol_ChildBg]            = kBaseLight;
+    c[ImGuiCol_PopupBg]            = {0.190f,0.185f,0.185f,0.97f};
+    c[ImGuiCol_Border]             = kBorder;
+    c[ImGuiCol_BorderShadow]       = {0,0,0,0};
+    // text
+    c[ImGuiCol_Text]               = kText;
+    c[ImGuiCol_TextDisabled]       = kTextDim;
+    // frames / inputs
+    c[ImGuiCol_FrameBg]            = kBaseLight;
+    c[ImGuiCol_FrameBgHovered]     = {0.270f,0.265f,0.265f,1.f};
+    c[ImGuiCol_FrameBgActive]      = {0.190f,0.185f,0.185f,1.f};
+    // title bar
+    c[ImGuiCol_TitleBg]            = kBaseDark;
+    c[ImGuiCol_TitleBgActive]      = kBlueDim;
+    c[ImGuiCol_TitleBgCollapsed]   = kBaseDark;
+    // menu / scrollbar
+    c[ImGuiCol_MenuBarBg]          = kBaseDark;
+    c[ImGuiCol_ScrollbarBg]        = kBaseDark;
+    c[ImGuiCol_ScrollbarGrab]      = {0.310f,0.300f,0.300f,1.f};
+    c[ImGuiCol_ScrollbarGrabHovered]= {0.380f,0.370f,0.370f,1.f};
+    c[ImGuiCol_ScrollbarGrabActive] = kOrangeDim;
+    // interactive marks
+    c[ImGuiCol_CheckMark]          = kOrange;
+    c[ImGuiCol_SliderGrab]         = kOrangeDim;
+    c[ImGuiCol_SliderGrabActive]   = kOrange;
+    // buttons  (blue accent)
+    c[ImGuiCol_Button]             = kBlueDim;
+    c[ImGuiCol_ButtonHovered]      = kBlueMid;
+    c[ImGuiCol_ButtonActive]       = kBlue;
+    // header (collapsibles, selectables, …)
+    c[ImGuiCol_Header]             = kBlueFaint;
+    c[ImGuiCol_HeaderHovered]      = kBlueDim;
+    c[ImGuiCol_HeaderActive]       = kBlue;
+    // separator / resize
+    c[ImGuiCol_Separator]          = kBorder;
+    c[ImGuiCol_SeparatorHovered]   = kBlueMid;
+    c[ImGuiCol_SeparatorActive]    = kBlue;
+    c[ImGuiCol_ResizeGrip]         = {0,0,0,0};
+    c[ImGuiCol_ResizeGripHovered]  = kBlueDim;
+    c[ImGuiCol_ResizeGripActive]   = kBlue;
+    // tabs
+    c[ImGuiCol_Tab]                = kBaseDark;
+    c[ImGuiCol_TabHovered]         = kBlueMid;
+    c[ImGuiCol_TabActive]          = kBlueDim;
+    c[ImGuiCol_TabUnfocused]       = kBaseDark;
+    c[ImGuiCol_TabUnfocusedActive] = kBaseLight;
+    // docking
+    c[ImGuiCol_DockingPreview]     = {kBlue.x,kBlue.y,kBlue.z,0.55f};
+    c[ImGuiCol_DockingEmptyBg]     = kBase;
+    // plots
+    c[ImGuiCol_PlotLines]          = kBlue;
+    c[ImGuiCol_PlotLinesHovered]   = kOrange;
+    c[ImGuiCol_PlotHistogram]      = kOrangeDim;
+    c[ImGuiCol_PlotHistogramHovered]= kOrange;
+    // tables
+    c[ImGuiCol_TableHeaderBg]      = kBaseLight;
+    c[ImGuiCol_TableBorderLight]   = kBorder;
+    c[ImGuiCol_TableBorderStrong]  = kBorder;
+    c[ImGuiCol_TableRowBg]         = {0,0,0,0};
+    c[ImGuiCol_TableRowBgAlt]      = {1,1,1,0.03f};
+    // misc
+    c[ImGuiCol_NavHighlight]       = kOrange;
+    c[ImGuiCol_NavWindowingHighlight] = kOrange;
+}
+
+// ── Settings window ───────────────────────────────────────────────────────────
+void GuiManager::drawSettingsWindow() {
+    if (viewport3DPanel_)
+        viewport3DPanel_->drawSettings();
+}
+
+void GuiManager::saveSettings() {
+    if (viewport3DPanel_) {
+        viewport3DPanel_->settings().save("settings.cfg");
+        GVLOG_INFO("Settings saved to settings.cfg");
+    }
 }
 
 } // namespace gtsam_viz

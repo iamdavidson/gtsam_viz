@@ -25,7 +25,9 @@ private:
     void drawMainMenuBar();
     void drawDockspace();
     void drawAboutWindow();
+    void drawSettingsWindow();
     void applyDarkTheme();
+    void saveSettings();
 
     FactorGraphState state_;
 
@@ -38,6 +40,7 @@ private:
     bool showAbout_      = false;
     bool showImGuiDemo_  = false;
     bool showImPlotDemo_ = false;
+    bool showSettings_   = false;
 
     ImGuiID dockspaceId_ = 0;
     GVizServer ipcServer_;
