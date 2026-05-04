@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake build_release -DGTSAMVIZ_BUILD_EXAMPLE=ON)",
+      "Bash(cmake --build build_release --target gviz_usage_example --parallel 8)"
+    ]
+  }
+}

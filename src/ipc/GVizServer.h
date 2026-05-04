@@ -15,16 +15,27 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <array>
 
 namespace gtsam_viz {
 
+// ── Decoded point cloud ready for the GUI thread ──────────────────────────────
+struct DecodedCloud {
+    std::vector<std::array<float, 3>>    positions;
+    std::vector<std::array<uint8_t, 4>>  colors;   // empty → use default_color
+    float                                point_size    = 3.f;
+    std::array<float, 4>                 default_color = {1, 1, 1, 1};
+};
+
 /// Decoded frame ready for consumption by the GUI thread
 struct GVizFrame {
-    gviz_ipc::MsgType              type;
-    uint32_t                       seq_id;
-    std::string                    label;
-    std::vector<gviz_ipc::GVizVarEntry>  vars;
-    std::vector<gviz_ipc::GVizEdgeEntry> edges;
+    gviz_ipc::MsgType                        type;
+    uint32_t                                 seq_id;
+    std::string                              label;
+    std::vector<gviz_ipc::GVizVarEntry>      vars;
+    std::vector<gviz_ipc::GVizEdgeEntry>     edges;
+    std::vector<DecodedCloud>                point_clouds;   // v2: decoded clouds
+    std::vector<gviz_ipc::GVizPrimEntry>     primitives;     // v2: decoded prims
 };
 
 class GVizServer {
@@ -32,18 +43,13 @@ public:
     GVizServer();
     ~GVizServer();
 
-    /// Start listening on the Unix Domain Socket.
-    /// Returns false if the socket could not be created.
     bool start();
-
-    /// Stop the server and clean up the socket file.
     void stop();
 
     bool isRunning()   const { return running_.load(); }
     bool isConnected() const { return clientConnected_.load(); }
 
     /// Call once per GUI frame (main thread only).
-    /// Applies the latest pending frame to `state` and returns true if anything changed.
     bool poll(FactorGraphState& state);
 
 private:
@@ -53,17 +59,16 @@ private:
 
     void applyFrame(const GVizFrame& frame, FactorGraphState& state);
 
-    int              serverFd_  = -1;
+    int               serverFd_  = -1;
     std::atomic<bool> running_{false};
     std::atomic<bool> clientConnected_{false};
 
-    std::thread      acceptThread_;
+    std::thread       acceptThread_;
 
-    // Double buffer: recvLoop writes pending_, poll() swaps it
-    mutable std::mutex           mtx_;
-    std::optional<GVizFrame>     pending_;
-    bool                         hasNew_  = false;
-    uint32_t                     lastSeq_ = 0;
+    mutable std::mutex        mtx_;
+    std::optional<GVizFrame>  pending_;
+    bool                      hasNew_  = false;
+    uint32_t                  lastSeq_ = 0;
 };
 
 } // namespace gtsam_viz

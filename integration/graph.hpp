@@ -45,8 +45,14 @@
 #include <mutex>
 #include <cstdint>
 #include <optional>
+#include <algorithm>
 
-#include <yaml-cpp/yaml.h>
+#if __has_include(<yaml-cpp/yaml.h>)
+  #include <yaml-cpp/yaml.h>
+  #define FACTOR_GRAPH_HAS_YAML_CPP 1
+#else
+  #define FACTOR_GRAPH_HAS_YAML_CPP 0
+#endif
 
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/geometry/Point3.h>
@@ -58,11 +64,29 @@
 #include <gtsam/slam/BetweenFactor.h>
 #include <gtsam/slam/PriorFactor.h>
 
-#include "logger.hpp"
+#if __has_include("logger.hpp")
+  #include "logger.hpp"
+#else
+enum class LogColor { BRIGHT_CYAN };
+class Logger {
+public:
+    Logger(const std::string&, LogColor) {}
+    void info(const std::string&) {}
+};
+#endif
 
 // ── IPC Client (opt-out mit GTSAMVIZ_NO_IPC=1) ───────────────────────────────
 #ifndef GTSAMVIZ_NO_IPC
-  #include "GVizClient.h"   // GVizProtocol.h + GVizClient.h neben graph.hpp
+  #if __has_include("GVizClient.h")
+    #include "GVizClient.h"   // Split client: GVizProtocol.h + GVizClient.h
+  #elif __has_include("gviz_client.h")
+    #include "gviz_client.h"  // Single-file integration client
+  #else
+    #define GTSAMVIZ_NO_IPC 1
+  #endif
+#endif
+
+#ifndef GTSAMVIZ_NO_IPC
   #define GVIZ_AVAILABLE 1
 #else
   #define GVIZ_AVAILABLE 0
@@ -205,12 +229,19 @@ public:
 
     // ── Parameter laden ───────────────────────────────────────────────────────
     GraphParams load_params() {
+#if FACTOR_GRAPH_HAS_YAML_CPP
+        try {
         YAML::Node settings = YAML::LoadFile("./config/settings.yaml");
         GraphParams loaded;
         loaded.odometry_sigmas = settings["graph"]["odometry_sigmas"].as<std::vector<double>>();
         loaded.loop_sigmas     = settings["graph"]["loop_sigmas"].as<std::vector<double>>();
         loaded.prior_sigmas    = settings["graph"]["prior_sigmas"].as<std::vector<double>>();
         return loaded;
+        } catch (...) {
+            graph_log.info("Graph settings not found; using default noise sigmas");
+        }
+#endif
+        return GraphParams{};
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -257,10 +288,11 @@ public:
         }
 
         ++step_counter_;
-        if (step_counter_ % viz_cfg_.publishEveryN == 0) {
+        int publishEveryN = std::max(1, viz_cfg_.publishEveryN);
+        if (step_counter_ % publishEveryN == 0) {
             // Alle 10×publishEveryN Schritte: vollständiger Replace (neue Kanten sichtbar)
             // Sonst: nur Values-Update (günstiger, keine Topologie-Übertragung)
-            bool do_replace = (step_counter_ % (viz_cfg_.publishEveryN * 10) == 0);
+            bool do_replace = (step_counter_ % (publishEveryN * 10) == 0);
             if (do_replace)
                 viz_publish_replace("odom key=" + std::to_string(curr_pose_key));
             else

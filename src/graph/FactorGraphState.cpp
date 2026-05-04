@@ -15,6 +15,25 @@
 namespace gtsam_viz {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+static glm::vec3 toRenderCoords(float x, float y, float z) {
+    return {x, z, y};
+}
+
+static glm::mat4 toRenderTransform(const glm::mat3& rotation, const glm::vec3& translation) {
+    const glm::mat3 swap(1.f, 0.f, 0.f,
+                         0.f, 0.f, 1.f,
+                         0.f, 1.f, 0.f);
+    const glm::mat3 renderRotation = swap * rotation * swap;
+    const glm::vec3 renderTranslation = swap * translation;
+
+    glm::mat4 transform(1.f);
+    transform[0] = glm::vec4(renderRotation[0], 0.f);
+    transform[1] = glm::vec4(renderRotation[1], 0.f);
+    transform[2] = glm::vec4(renderRotation[2], 0.f);
+    transform[3] = glm::vec4(renderTranslation, 1.f);
+    return transform;
+}
+
 static std::string keyLabel(gtsam::Key key) {
     try {
         gtsam::Symbol sym(key);
@@ -39,12 +58,34 @@ void FactorGraphState::clear() {
     initialValues_    = gtsam::Values{};
     variables_.clear();
     factors_.clear();
+    point_clouds_.clear();
+    primitives_.clear();
     history_.clear();
     optimized_        = false;
     marginalsValid_   = false;
     marginals_.reset();
     isam2_.reset();
     isam2Initialized_ = false;
+    notifyChanged();
+}
+
+void FactorGraphState::setPointClouds(std::vector<PointCloud> clouds) {
+    point_clouds_ = std::move(clouds);
+    notifyChanged();
+}
+
+void FactorGraphState::clearPointClouds() {
+    point_clouds_.clear();
+    notifyChanged();
+}
+
+void FactorGraphState::setPrimitives(std::vector<Primitive> prims) {
+    primitives_ = std::move(prims);
+    notifyChanged();
+}
+
+void FactorGraphState::clearPrimitives() {
+    primitives_.clear();
     notifyChanged();
 }
 
@@ -293,36 +334,37 @@ void FactorGraphState::extractPose(VariableNode& vn) const {
     switch (vn.type) {
     case VariableType::Pose2: {
         auto p = values_.at<gtsam::Pose2>(vn.key);
-        vn.position3d = {(float)p.x(), (float)p.y(), 0.f};
-        vn.transform  = glm::mat4(1.f);
-        vn.transform  = glm::translate(vn.transform, vn.position3d);
-        vn.transform  = glm::rotate(vn.transform, (float)p.theta(),
-                                    glm::vec3(0,0,1));
+        vn.position3d = toRenderCoords((float)p.x(), (float)p.y(), 0.f);
+        float c = std::cos((float)p.theta());
+        float s = std::sin((float)p.theta());
+        glm::mat3 Rsrc( c,  s, 0.f,
+                       -s,  c, 0.f,
+                        0.f,0.f,1.f);
+        vn.transform = toRenderTransform(Rsrc, {(float)p.x(), (float)p.y(), 0.f});
         break;
     }
     case VariableType::Pose3: {
         auto p = values_.at<gtsam::Pose3>(vn.key);
         auto t = p.translation();
-        vn.position3d = {(float)t.x(), (float)t.y(), (float)t.z()};
-        // Build mat4 from Rot3
+        vn.position3d = toRenderCoords((float)t.x(), (float)t.y(), (float)t.z());
         auto R = p.rotation().matrix();
-        vn.transform = glm::mat4(
-            (float)R(0,0),(float)R(1,0),(float)R(2,0),0,
-            (float)R(0,1),(float)R(1,1),(float)R(2,1),0,
-            (float)R(0,2),(float)R(1,2),(float)R(2,2),0,
-            (float)t.x(), (float)t.y(), (float)t.z(), 1
+        glm::mat3 Rsrc(
+            (float)R(0,0),(float)R(1,0),(float)R(2,0),
+            (float)R(0,1),(float)R(1,1),(float)R(2,1),
+            (float)R(0,2),(float)R(1,2),(float)R(2,2)
         );
+        vn.transform = toRenderTransform(Rsrc, {(float)t.x(), (float)t.y(), (float)t.z()});
         break;
     }
     case VariableType::Point2: {
         auto p = values_.at<gtsam::Point2>(vn.key);
-        vn.position3d = {(float)p.x(), (float)p.y(), 0.f};
+        vn.position3d = toRenderCoords((float)p.x(), (float)p.y(), 0.f);
         vn.transform  = glm::translate(glm::mat4(1.f), vn.position3d);
         break;
     }
     case VariableType::Point3: {
         auto p = values_.at<gtsam::Point3>(vn.key);
-        vn.position3d = {(float)p.x(), (float)p.y(), (float)p.z()};
+        vn.position3d = toRenderCoords((float)p.x(), (float)p.y(), (float)p.z());
         vn.transform  = glm::translate(glm::mat4(1.f), vn.position3d);
         break;
     }

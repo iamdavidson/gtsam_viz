@@ -27,8 +27,10 @@ target_compile_options(gtsam_viz_lib PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4>
 )
 
-add_executable(gtsam_viz main.cpp)
-target_link_libraries(gtsam_viz PRIVATE gtsam_viz_lib)
+if(GTSAMVIZ_BUILD_STANDALONE)
+    add_executable(gtsam_viz main.cpp)
+    target_link_libraries(gtsam_viz PRIVATE gtsam_viz_lib)
+endif()
 
 install(TARGETS gtsam_viz_lib ARCHIVE DESTINATION lib)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/

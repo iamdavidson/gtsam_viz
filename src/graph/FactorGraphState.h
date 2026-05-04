@@ -14,6 +14,7 @@
 
 #include <string>
 #include <vector>
+#include <array>
 #include <unordered_map>
 #include <optional>
 #include <functional>
@@ -22,48 +23,74 @@
 
 namespace gtsam_viz {
 
-// ─── Node / Variable metadata ─────────────────────────────────────────────────
+// ─── Variable node ────────────────────────────────────────────────────────────
 enum class VariableType { Pose2, Pose3, Point2, Point3, Unknown };
 
 struct VariableNode {
     gtsam::Key   key;
-    std::string  label;       // e.g. "x1", "l2"
+    std::string  label;
     VariableType type;
-    glm::vec2    pos;         // layout position (pixels)
+    glm::vec2    pos      = {0, 0};
     bool         selected = false;
-    bool         fixed    = false;  // pinned in layout
-    glm::vec2    velocity = {0,0};  // force-layout velocity
+    bool         fixed    = false;
+    glm::vec2    velocity = {0, 0};
 
-    // Cached value representations
-    glm::vec3    position3d{0};     // position in 3D space
-    glm::mat4    transform{1};      // full pose as mat4
+    // 3D representation
+    glm::vec3    position3d{0};
+    glm::mat4    transform{1};
+
+    // Optional per-variable position covariance (from IPC or GTSAM marginals)
+    bool         has_covariance = false;
+    float        covariance3d[9] = {};  // row-major 3×3
 };
 
-// ─── Factor metadata ──────────────────────────────────────────────────────────
+// ─── Factor node ──────────────────────────────────────────────────────────────
 enum class FactorType { Prior, Between, Projection, Custom };
 
 struct FactorNode {
-    size_t       index;       // index in NonlinearFactorGraph
-    std::string  label;       // type name (short)
+    size_t       index;
+    std::string  label;
     FactorType   type;
-    glm::vec2    pos;         // layout position (centroid of connected vars)
+    glm::vec2    pos      = {0, 0};
     bool         selected = false;
     double       error    = 0.0;
-    std::vector<gtsam::Key> keys;  // copied from KeyVector
-    glm::vec2    velocity = {0,0};
+    std::vector<gtsam::Key> keys;
+    glm::vec2    velocity = {0, 0};
 };
 
-// ─── Optimization history entry ───────────────────────────────────────────────
+// ─── Point cloud ──────────────────────────────────────────────────────────────
+struct PointCloud {
+    std::vector<glm::vec3>          points;
+    std::vector<glm::u8vec4>        colors;        // empty → use default_color
+    glm::vec4                       default_color  = {1, 1, 1, 1};
+    float                           point_size     = 3.f;
+    std::string                     label;
+};
+
+// ─── Primitive ────────────────────────────────────────────────────────────────
+// prim_type mirrors gviz_ipc::PrimType; we avoid including the IPC header here
+// to keep the state layer free of wire-format details.
+enum class PrimType : uint8_t {
+    Line = 0, Arrow, Box, Sphere, Cone, Cylinder, CoordFrame
+};
+
+struct Primitive {
+    PrimType     type;
+    glm::vec4    color;
+    float        data[16] = {};  // same layout as GVizPrimEntry::data
+};
+
+// ─── Optimization history ─────────────────────────────────────────────────────
 struct OptimizationStep {
     int    iteration;
     double totalError;
-    double lambda;           // for LM
+    double lambda;
 };
 
 // ─── Optimizer type ───────────────────────────────────────────────────────────
 enum class OptimizerType { LevenbergMarquardt, DogLeg, GaussNewton, ISAM2 };
 
-// ─── Main state class ─────────────────────────────────────────────────────────
+// ─── Main state ───────────────────────────────────────────────────────────────
 class FactorGraphState {
 public:
     using ChangeCallback = std::function<void()>;
@@ -78,31 +105,42 @@ public:
     void addValue(gtsam::Key key, const gtsam::Value& value);
 
     // ── Optimization ──────────────────────────────────────────────────────────
-    void  setOptimizerType(OptimizerType type) { optimizerType_ = type; }
-    OptimizerType getOptimizerType() const { return optimizerType_; }
+    void  setOptimizerType(OptimizerType t) { optimizerType_ = t; }
+    OptimizerType getOptimizerType()  const { return optimizerType_; }
     bool  optimize(int maxIterations = 100);
     bool  optimizeOneStep();
     void  resetValues();
 
     // ── Accessors ─────────────────────────────────────────────────────────────
-    const gtsam::NonlinearFactorGraph& graph()       const { return graph_; }
-    const gtsam::Values&               values()      const { return values_; }
-    const gtsam::Values&               initialValues() const { return initialValues_; }
+    const gtsam::NonlinearFactorGraph& graph()          const { return graph_; }
+    const gtsam::Values&               values()         const { return values_; }
+    const gtsam::Values&               initialValues()  const { return initialValues_; }
 
-    std::vector<VariableNode>&         variables()         { return variables_; }
-    const std::vector<VariableNode>&   variables()   const { return variables_; }
-    std::vector<FactorNode>&           factors()           { return factors_; }
-    const std::vector<FactorNode>&     factors()     const { return factors_; }
+    std::vector<VariableNode>&         variables()             { return variables_; }
+    const std::vector<VariableNode>&   variables()       const { return variables_; }
+    std::vector<FactorNode>&           factors()               { return factors_; }
+    const std::vector<FactorNode>&     factors()         const { return factors_; }
 
-    double totalError()      const;
-    double factorError(size_t factorIdx) const;
+    // Point clouds
+    const std::vector<PointCloud>&     pointClouds()     const { return point_clouds_; }
+    void setPointClouds(std::vector<PointCloud> clouds);
+    void clearPointClouds();
 
-    // Covariance (requires marginals computation)
-    bool                        computeMarginals();
-    std::optional<gtsam::Matrix> marginalCovariance(gtsam::Key key) const;
+    // Primitives
+    const std::vector<Primitive>&      primitives()      const { return primitives_; }
+    void setPrimitives(std::vector<Primitive> prims);
+    void clearPrimitives();
 
-    const std::vector<OptimizationStep>& history() const { return history_; }
-    bool isOptimized() const { return optimized_; }
+    // ── Errors ───────────────────────────────────────────────────────────────
+    double totalError()            const;
+    double factorError(size_t idx) const;
+
+    // ── Covariance (in-process optimizer path) ────────────────────────────────
+    bool                          computeMarginals();
+    std::optional<gtsam::Matrix>  marginalCovariance(gtsam::Key key) const;
+
+    const std::vector<OptimizationStep>& history()    const { return history_; }
+    bool isOptimized()                               const { return optimized_; }
 
     // ── Change notifications ──────────────────────────────────────────────────
     void onChanged(ChangeCallback cb) { changeCallbacks_.push_back(std::move(cb)); }
@@ -110,18 +148,16 @@ public:
     // ── Metadata rebuild ──────────────────────────────────────────────────────
     void rebuildMetadata();
 
-    // 25002500 IPC / visual-only mutations (no GTSAM objects involved) 2500250025002500250025002500250025002500250025002500250025002500250025002500
+    // ── IPC / visual-only mutations ───────────────────────────────────────────
     void clearVisualOnly();
     void clearFactorsVisual();
     void upsertVariable(VariableNode vn);
     void appendFactorVisual(FactorNode fn);
     void notifyChangedPublic() { notifyChanged(); }
 
-    // ── ISAM2 ────────────────────────────────────────────────────────────────
-    gtsam::ISAM2Params& isam2Params() { return isam2Params_; }
-
-    // ── LM params ─────────────────────────────────────────────────────────────
-    gtsam::LevenbergMarquardtParams& lmParams() { return lmParams_; }
+    // ── ISAM2 / LM params ────────────────────────────────────────────────────
+    gtsam::ISAM2Params&              isam2Params() { return isam2Params_; }
+    gtsam::LevenbergMarquardtParams& lmParams()    { return lmParams_; }
 
 private:
     void notifyChanged();
@@ -130,29 +166,31 @@ private:
     FactorType   detectFactorType(const gtsam::NonlinearFactor::shared_ptr& f) const;
     void         extractPose(VariableNode& vn) const;
 
-    gtsam::NonlinearFactorGraph    graph_;
-    gtsam::Values                  values_;
-    gtsam::Values                  initialValues_;
+    gtsam::NonlinearFactorGraph     graph_;
+    gtsam::Values                   values_;
+    gtsam::Values                   initialValues_;
 
-    std::vector<VariableNode>      variables_;
-    std::vector<FactorNode>        factors_;
+    std::vector<VariableNode>       variables_;
+    std::vector<FactorNode>         factors_;
+    std::vector<PointCloud>         point_clouds_;
+    std::vector<Primitive>          primitives_;
 
-    OptimizerType                  optimizerType_ = OptimizerType::LevenbergMarquardt;
+    OptimizerType                   optimizerType_ = OptimizerType::LevenbergMarquardt;
     gtsam::LevenbergMarquardtParams lmParams_;
-    gtsam::DoglegParams            doglegParams_;
-    gtsam::GaussNewtonParams       gnParams_;
-    gtsam::ISAM2Params             isam2Params_;
+    gtsam::DoglegParams             doglegParams_;
+    gtsam::GaussNewtonParams        gnParams_;
+    gtsam::ISAM2Params              isam2Params_;
 
-    std::unique_ptr<gtsam::ISAM2>  isam2_;
-    bool                           isam2Initialized_ = false;
+    std::unique_ptr<gtsam::ISAM2>   isam2_;
+    bool                            isam2Initialized_ = false;
 
-    bool                           optimized_ = false;
-    std::vector<OptimizationStep>  history_;
+    bool                            optimized_      = false;
+    std::vector<OptimizationStep>   history_;
 
     std::unique_ptr<gtsam::Marginals> marginals_;
-    bool                           marginalsValid_ = false;
+    bool                            marginalsValid_ = false;
 
-    std::vector<ChangeCallback>    changeCallbacks_;
+    std::vector<ChangeCallback>     changeCallbacks_;
 };
 
 } // namespace gtsam_viz

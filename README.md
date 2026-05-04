@@ -54,7 +54,8 @@ cd gtsam_viz && ./build.sh release
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `GTSAMVIZ_BUILD_EXAMPLES` | ON  | Build demo scenarios |
+| `GTSAMVIZ_BUILD_STANDALONE` | ON  | Build the `gtsam_viz` executable |
+| `GTSAMVIZ_BUILD_EXAMPLE`    | OFF | Build `integration/usage_example.cpp` |
 | `GTSAMVIZ_ENABLE_ASAN`    | OFF | AddressSanitizer |
 | `GTSAMVIZ_ENABLE_TSAN`    | OFF | ThreadSanitizer |
 
@@ -62,7 +63,15 @@ cd gtsam_viz && ./build.sh release
 ## Usage 
 ### Separate Process (IPC via a socket)
 
-Copy this files into your project.
+Detailed integration guide: [`integration/GVizClient_Usage.md`](integration/GVizClient_Usage.md)
+
+Copy either the single-file client:
+
+```bash
+integration/gviz_client.h
+```
+
+or the split client headers:
 
 ```bash
 GVizProtocol.h
@@ -76,8 +85,7 @@ your_proj/
     src/
     include/
         gtsam_viz/
-            GVizProtocol.h
-            GVizClient.h
+            gviz_client.h
 ```
 
 In CMake 
@@ -91,7 +99,7 @@ target_include_directories(your_exec PRIVATE
 In code
 
 ```cpp
-#include "GVizClient.h"
+#include "gviz_client.h"
 
 GVizClient viz;
 
@@ -99,7 +107,7 @@ int main() {
     viz.connect("/tmp/gtsam_viz.sock");
 
     //...
-    viz.publish(graph, values, "frame 42");x
+    viz.publish(graph, values, "frame 42");
     //...
     viz.publishValuesOnly(values, "optimized");
     //...
@@ -152,4 +160,3 @@ int main() {
 | `Ctrl+D` | Open demo loader |
 | `Ctrl+N` | Clear graph |
 | `Esc` | Quit |
-

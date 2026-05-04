@@ -26,7 +26,6 @@ bool GuiManager::init(Renderer3D& renderer, GVizServer& server) {
             + std::to_string(state_.factors().size())   + " factors");
     });
 
-    ipcServer_.start();
     GVLOG_INFO("GTSAMViz ready. Waiting for backend data…");
     return true;
 }
@@ -122,8 +121,9 @@ void GuiManager::drawMainMenuBar() {
 
     // Right-aligned status + IPC connection indicator
     double err = state_.values().empty() ? 0.0 : state_.totalError();
-    const char* connStr = ipcServer_.isConnected() ? "● BACKEND" : "○ no backend";
-    ImVec4 connCol = ipcServer_.isConnected()
+    const bool connected = server_ && server_->isConnected();
+    const char* connStr = connected ? "● BACKEND" : "○ no backend";
+    ImVec4 connCol = connected
         ? ImVec4{0.996f,0.690f,0.365f,1.f} : ImVec4{0.45f,0.43f,0.43f,1.f};
     char buf[120];
     snprintf(buf, sizeof(buf), "Vars: %zu  Factors: %zu  Error: %.5f",

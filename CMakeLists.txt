@@ -40,3 +40,13 @@ add_subdirectory(src)
 # External projects can link against GTSAMViz::lib regardless of how they
 # found this package (add_subdirectory vs find_package).
 add_library(GTSAMViz::lib ALIAS gtsam_viz_lib)
+
+# ── Integration example ───────────────────────────────────────────────────────
+option(GTSAMVIZ_BUILD_EXAMPLE "Build integration/usage_example" OFF)
+if(GTSAMVIZ_BUILD_EXAMPLE)
+    add_executable(gviz_usage_example integration/usage_example.cpp)
+    target_include_directories(gviz_usage_example PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/integration)
+    target_link_libraries(gviz_usage_example PRIVATE gtsam)
+    set_target_properties(gviz_usage_example PROPERTIES CXX_STANDARD 17)
+endif()

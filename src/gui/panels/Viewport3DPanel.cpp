@@ -81,15 +81,35 @@ void Viewport3DPanel::draw() {
 void Viewport3DPanel::drawToolbar() {
     auto& R = renderer_;
 
-    // Row 1: toggles
+    // Row 1: graph toggles
     ImGui::Checkbox("Axes",        &R.showAxes);       ImGui::SameLine();
     ImGui::Checkbox("Trajectory",  &R.showTrajectory); ImGui::SameLine();
-    ImGui::Checkbox("Covariances", &R.showCovEllipsoids);
+    if (R.showTrajectory) {
+        ImGui::Checkbox("Fehlerfarben", &R.colorEdgesByError);
+        if (R.colorEdgesByError) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(60);
+            ImGui::SliderFloat("Scale##edgeerr", &R.edgeErrorScale, 0.05f, 10.f, "%.2f");
+        }
+        ImGui::SameLine();
+    }
+    ImGui::Checkbox("Kovarianzen", &R.showCovEllipsoids);
     if (R.showCovEllipsoids) {
         ImGui::SameLine();
         ImGui::SetNextItemWidth(60);
         ImGui::SliderFloat("σ×##cov", &R.covScale, 1.f, 10.f, "%.1f");
     }
+    ImGui::SameLine(0,16);
+    ImGui::Checkbox("Punktwolken", &R.showPointClouds);
+    if (R.showPointClouds) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(55);
+        ImGui::SliderFloat("px##ps", &R.globalPointSize, 0.f, 20.f, "%.0f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("0 = pro-Wolke-Größe");
+    }
+    ImGui::SameLine(0,16);
+    ImGui::Checkbox("Primitive", &R.showPrimitives);
     ImGui::SameLine(0,20);
     ImGui::Checkbox("Follow", &R.followMode);
 

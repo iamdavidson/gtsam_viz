@@ -1,96 +1,187 @@
 /**
  * usage_example.cpp
  * ─────────────────
- * Zeigt wie graph.hpp in einem SLAM-Backend verwendet wird.
+ * Demonstrates the GTSAMViz v2 client API:
+ *   - Graph publish with covariance ellipsoids
+ *   - Point cloud streaming
+ *   - 3-D geometry primitives via SceneBuilder
  *
  * Workflow:
- *   Terminal 1:  ./gtsam_viz          # GUI-Prozess starten
- *   Terminal 2:  ./my_slam            # dieses Programm
+ *   Terminal 1:  ./gtsam_viz          # start the GUI
+ *   Terminal 2:  ./my_slam            # this program
  *
- * Keine gemeinsamen Libraries nötig — Kommunikation über Unix-Socket.
+ * No shared libraries required — communication via Unix socket.
  */
 
-#include "graph.hpp"
-#include <thread>
+#include "gviz_client.h"
+
+#include <gtsam/geometry/Pose3.h>
+#include <gtsam/geometry/Rot3.h>
+#include <gtsam/nonlinear/NonlinearFactorGraph.h>
+#include <gtsam/nonlinear/Values.h>
+#include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
+#include <gtsam/nonlinear/Marginals.h>
+#include <gtsam/slam/BetweenFactor.h>
+#include <gtsam/slam/PriorFactor.h>
+#include <gtsam/inference/Symbol.h>
+
+#include <Eigen/Core>
+
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <iostream>
+#include <thread>
+#include <vector>
 
-using namespace factor_graph;
 using namespace gtsam;
+using gtsam::symbol_shorthand::X;  // Pose3 variables: X(0), X(1), ...
 
-// ─── Hintergrund-Optimierer ───────────────────────────────────────────────────
-void optimizer_thread(Graph& g, std::atomic<bool>& stop) {
-    LevenbergMarquardtParams p;
-    p.maxIterations = 20;
-    p.setVerbosityLM("SILENT");
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
-    while (!stop) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
-
-        NonlinearFactorGraph gs; Values vs;
-        g.get_snap(gs, vs);
-        if (gs.empty() || vs.empty()) continue;
-
-        try {
-            Values result = LevenbergMarquardtOptimizer(gs, vs, p).optimize();
-            uint64_t tail = g.currentKey() > 0 ? g.currentKey()-1 : 0;
-            g.merge_optimzation(result, tail); // → Values-Update in GUI
-        } catch (const std::exception& e) {
-            std::cerr << "[Optimizer] " << e.what() << "\n";
-        }
-    }
+static Pose3 odometry(int step) {
+    // Small forward motion + slow yaw — traces a helix
+    double yaw   = 0.15;
+    double pitch = 0.02;
+    return Pose3(Rot3::RzRyRx(yaw, pitch, 0.0), Point3(0.5, 0.0, 0.05));
 }
 
-// ─── SLAM-Thread ─────────────────────────────────────────────────────────────
-void slam_thread(std::atomic<bool>& stop) {
+// ─── Example 1: graph with covariance ellipsoids ──────────────────────────────
 
-    // Viz-Konfiguration — einzige Änderung gegenüber der alten graph.hpp
-    VizConfig viz;
-    viz.enabled           = true;
-    viz.publishEveryN     = 1;
-    viz.publishOnMerge    = true;
-    viz.publishOnLoopClose = true;
-    viz.backendName       = "My SLAM";
-    // viz.socketPath     = "/tmp/gtsam_viz.sock";  // default
+void example_graph(GVizClient& viz) {
+    std::cout << "[example_graph] Building graph …\n";
 
-    Graph g(viz);
-    g.add_pose_prior(Pose3::Identity());
+    auto noise3  = noiseModel::Diagonal::Sigmas(Vector6::Constant(0.05));
+    auto priorNm = noiseModel::Diagonal::Sigmas(Vector6::Constant(0.001));
 
-    std::atomic<bool> opt_stop{false};
-    std::thread opt_th(optimizer_thread, std::ref(g), std::ref(opt_stop));
+    NonlinearFactorGraph graph;
+    Values               values;
 
-    int step = 0;
-    while (!stop) {
-        Pose3 odom(
-            Rot3::RzRyRx(0, 0, 0.05 * (step % 2 ? 1 : -1)),
-            Point3(0.5, 0.0, 0.0)
-        );
-        g.add_pose_between(odom);
+    graph.add(PriorFactor<Pose3>(X(0), Pose3::Identity(), priorNm));
+    values.insert(X(0), Pose3::Identity());
 
-        if (step > 0 && step % 30 == 0) {
-            g.add_loop_closure(g.currentKey()-1, 0, Pose3::Identity());
-            std::cout << "[SLAM] Loop closure @ step " << step << "\n";
+    Pose3 current = Pose3::Identity();
+    for (int i = 1; i <= 12; ++i) {
+        Pose3 odom = odometry(i);
+        current    = current * odom;
+        graph.add(BetweenFactor<Pose3>(X(i-1), X(i), odom, noise3));
+        values.insert(X(i), current);
+    }
+    // Loop closure
+    graph.add(BetweenFactor<Pose3>(X(11), X(0),
+                                   values.at<Pose3>(X(0)).between(values.at<Pose3>(X(11))),
+                                   noise3));
+
+    // Optimize
+    LevenbergMarquardtParams p; p.setVerbosityLM("SILENT");
+    Values result = LevenbergMarquardtOptimizer(graph, values, p).optimize();
+
+    // Compute marginal covariances for ellipsoid display
+    GVizClient::CovarianceMap covs;
+    try {
+        Marginals marginals(graph, result);
+        for (int i = 0; i <= 12; ++i) {
+            // For Pose3: full 6×6 marginal — take XYZ sub-block [3..5, 3..5]
+            covs[X(i)] = marginals.marginalCovariance(X(i)).block<3,3>(3,3);
         }
-
-        ++step;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    } catch (...) {
+        std::cerr << "[example_graph] Marginals failed — skipping ellipsoids\n";
     }
 
-    opt_stop = true;
-    opt_th.join();
+    viz.publish(graph, result, "loop-closure SLAM", &covs);
+    std::cout << "[example_graph] Done — " << result.size() << " poses published.\n";
 }
+
+// ─── Example 2: streaming point cloud ─────────────────────────────────────────
+
+void example_point_cloud(GVizClient& viz) {
+    std::cout << "[example_cloud] Streaming point cloud …\n";
+
+    const int N = 2000;
+    for (int frame = 0; frame < 5; ++frame) {
+        std::vector<Eigen::Vector3f> pts;
+        std::vector<Eigen::Vector4f> colors;
+        pts.reserve(N); colors.reserve(N);
+
+        for (int i = 0; i < N; ++i) {
+            float t  = (float)i / N * 2.f * M_PI;
+            float r  = 2.f + 0.5f * std::sin(5.f * t + (float)frame * 0.5f);
+            float z  = (float)i / N * 3.f - 1.5f;
+            pts.push_back({ r * std::cos(t), r * std::sin(t), z });
+
+            // Color by height: blue → red
+            float h = (z + 1.5f) / 3.f;
+            colors.push_back({ h, 0.3f, 1.f - h, 1.f });
+        }
+
+        viz.publishPointCloud(pts, colors,
+                              "scan frame " + std::to_string(frame), 4.f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    }
+    std::cout << "[example_cloud] Done.\n";
+}
+
+// ─── Example 3: geometry primitives ───────────────────────────────────────────
+
+void example_primitives(GVizClient& viz) {
+    std::cout << "[example_prims] Sending geometry primitives …\n";
+
+    viz.scene()
+        // Coordinate axes at origin
+        .coordFrame(Eigen::Vector3f::Zero(),
+                    Eigen::Matrix3f::Identity(), 1.5f)
+
+        // A row of spheres with increasing radius
+        .sphere({-3, 0, 0}, 0.20f, {1, 0, 0, 1})
+        .sphere({-2, 0, 0}, 0.30f, {1, 0.5f, 0, 1})
+        .sphere({-1, 0, 0}, 0.40f, {1, 1, 0, 1})
+
+        // Boxes
+        .box({1, 0, 0}, {0.4f, 0.2f, 0.6f}, {0, 0.8f, 0.2f, 1})
+        .box({2, 0, 0}, {0.3f, 0.5f, 0.3f}, {0, 0.4f, 1, 1},
+             Eigen::AngleAxisf(0.4f, Eigen::Vector3f::UnitZ()).toRotationMatrix())
+
+        // Arrows (direction indicators)
+        .arrow({0, -2, 0}, {1, -2, 0}, {1, 0.2f, 0.2f, 1})
+        .arrow({0, -2, 0}, {0, -1, 0}, {0.2f, 1, 0.2f, 1})
+        .arrow({0, -2, 0}, {0, -2, 1}, {0.2f, 0.2f, 1, 1})
+
+        // Cone and cylinder
+        .cone({0, 2, 1}, {0, 2, 0}, 0.4f, {1, 0.5f, 0, 0.9f})
+        .cylinder({0, 3, 0}, {0, 0, 1}, 0.25f, 0.8f, {0.6f, 0, 1, 0.9f})
+
+        // A diagonal line
+        .line({-4, -4, 0}, {4, 4, 2}, {1, 1, 0.5f, 1}, 2.f)
+
+        .send(viz, "geometry demo");
+
+    std::cout << "[example_prims] Done.\n";
+}
+
+// ─── main ─────────────────────────────────────────────────────────────────────
 
 int main() {
-    std::cout << "[main] SLAM-Thread starten (10 s Demo)\n";
+    GVizClient viz;
+    if (!viz.connect()) {
+        std::cerr << "[main] Could not connect to GTSAMViz — is the GUI running?\n";
+        std::cerr << "       Start it with:  ./gtsam_viz\n";
+        return 1;
+    }
+    std::cout << "[main] Connected to GTSAMViz.\n";
 
-    std::atomic<bool> stop{false};
-    std::thread slam(slam_thread, std::ref(stop));
+    viz.clear();
 
-    std::this_thread::sleep_for(std::chrono::seconds(10));
-    stop = true;
-    slam.join();
+    // 1. Optimized factor graph with covariance ellipsoids
+    example_graph(viz);
+    std::this_thread::sleep_for(std::chrono::seconds(2));
 
-    std::cout << "[main] Fertig.\n";
+    // 2. Streaming point cloud (5 frames)
+    example_point_cloud(viz);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    // 3. 3-D geometry primitives
+    example_primitives(viz);
+
+    std::cout << "[main] All examples done.  GTSAMViz remains open.\n";
     return 0;
 }

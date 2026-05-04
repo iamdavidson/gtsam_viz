@@ -1,3 +1,19 @@
 {
-    "ROS2.distro": "jazzy"
+    "ROS2.distro": "jazzy",
+    "python.autoComplete.extraPaths": [
+        "/home/karnelius/ros2_ws/install/pogolm_interfaces/lib/python3.12/site-packages",
+        "/home/karnelius/ros2_ws/install/pgo_debug_tools/lib/python3.12/site-packages",
+        "/home/karnelius/ros2_ws/install/pgo_interfaces/lib/python3.12/site-packages",
+        "/home/karnelius/ros2_ws/install/mesh_msgs/lib/python3.12/site-packages",
+        "/home/karnelius/ros2_ws/install/factor_graph_interfaces/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/karnelius/ros2_ws/install/pogolm_interfaces/lib/python3.12/site-packages",
+        "/home/karnelius/ros2_ws/install/pgo_debug_tools/lib/python3.12/site-packages",
+        "/home/karnelius/ros2_ws/install/pgo_interfaces/lib/python3.12/site-packages",
+        "/home/karnelius/ros2_ws/install/mesh_msgs/lib/python3.12/site-packages",
+        "/home/karnelius/ros2_ws/install/factor_graph_interfaces/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ]
 }

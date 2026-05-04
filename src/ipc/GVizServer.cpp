@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <cstring>
+#include <iomanip>
 #include <sstream>
 
 #include <glm/glm.hpp>
@@ -18,12 +19,70 @@ using namespace gviz_ipc;
 GVizServer::GVizServer()  = default;
 GVizServer::~GVizServer() { stop(); }
 
+static glm::vec3 toRenderCoords(float x, float y, float z) {
+    return {x, z, y};
+}
+
+static glm::mat3 toRenderRotation(const glm::mat3& rotation) {
+    const glm::mat3 swap(1.f, 0.f, 0.f,
+                         0.f, 0.f, 1.f,
+                         0.f, 1.f, 0.f);
+    return swap * rotation * swap;
+}
+
+static glm::mat4 toRenderTransform(const float transform[16]) {
+    glm::mat3 rotation(
+        transform[0], transform[1], transform[2],
+        transform[4], transform[5], transform[6],
+        transform[8], transform[9], transform[10]);
+    glm::vec3 translation(transform[12], transform[13], transform[14]);
+
+    glm::mat3 renderRotation = toRenderRotation(rotation);
+    glm::vec3 renderTranslation = toRenderCoords(translation.x, translation.y, translation.z);
+
+    glm::mat4 out(1.f);
+    out[0] = glm::vec4(renderRotation[0], 0.f);
+    out[1] = glm::vec4(renderRotation[1], 0.f);
+    out[2] = glm::vec4(renderRotation[2], 0.f);
+    out[3] = glm::vec4(renderTranslation, 1.f);
+    return out;
+}
+
+static glm::mat3 rowMajorRotationToRender(const float* data) {
+    glm::mat3 rotation(
+        data[0], data[3], data[6],
+        data[1], data[4], data[7],
+        data[2], data[5], data[8]);
+    return toRenderRotation(rotation);
+}
+
+static void writeRenderRotationRowMajor(const glm::mat3& rotation, float* data) {
+    data[0] = rotation[0][0]; data[1] = rotation[1][0]; data[2] = rotation[2][0];
+    data[3] = rotation[0][1]; data[4] = rotation[1][1]; data[5] = rotation[2][1];
+    data[6] = rotation[0][2]; data[7] = rotation[1][2]; data[8] = rotation[2][2];
+}
+
+static void convertVec3Payload(float* data, int offset) {
+    glm::vec3 p = toRenderCoords(data[offset], data[offset + 1], data[offset + 2]);
+    data[offset] = p.x;
+    data[offset + 1] = p.y;
+    data[offset + 2] = p.z;
+}
+
+static void convertCovarianceRowMajor(float covariance[9]) {
+    glm::mat3 cov(
+        covariance[0], covariance[3], covariance[6],
+        covariance[1], covariance[4], covariance[7],
+        covariance[2], covariance[5], covariance[8]);
+    glm::mat3 renderCov = toRenderRotation(cov);
+    writeRenderRotationRowMajor(renderCov, covariance);
+}
+
 // ── Start / Stop ──────────────────────────────────────────────────────────────
 
 bool GVizServer::start() {
     if (running_) return true;
 
-    // Remove stale socket file
     ::unlink(SOCKET_PATH);
 
     serverFd_ = ::socket(AF_UNIX, SOCK_STREAM, 0);
@@ -63,11 +122,10 @@ void GVizServer::stop() {
     clientConnected_ = false;
 }
 
-// ── Accept loop (background thread) ──────────────────────────────────────────
+// ── Accept loop ───────────────────────────────────────────────────────────────
 
 void GVizServer::acceptLoop() {
     while (running_) {
-        // Use select with timeout so we can check running_ periodically
         fd_set fds; FD_ZERO(&fds); FD_SET(serverFd_, &fds);
         struct timeval tv{1, 0};
         int ret = ::select(serverFd_+1, &fds, nullptr, nullptr, &tv);
@@ -85,14 +143,13 @@ void GVizServer::acceptLoop() {
         clientConnected_ = false;
         GVLOG_INFO("[GVizServer] Client disconnected.");
 
-        // Clear state on disconnect
         std::lock_guard<std::mutex> g(mtx_);
         pending_.reset();
         hasNew_ = false;
     }
 }
 
-// ── Recv loop (runs per connected client) ─────────────────────────────────────
+// ── Recv loop ─────────────────────────────────────────────────────────────────
 
 bool GVizServer::recvExact(int fd, void* buf, size_t n) {
     size_t got = 0;
@@ -106,12 +163,15 @@ bool GVizServer::recvExact(int fd, void* buf, size_t n) {
 
 void GVizServer::recvLoop(int clientFd) {
     while (running_ && clientConnected_) {
-        // Read header
+        // ── Header ────────────────────────────────────────────────────────────
         GVizMsgHeader hdr{};
         if (!recvExact(clientFd, &hdr, sizeof(hdr))) return;
 
-        if (hdr.magic != MAGIC) {
-            GVLOG_WARN("[GVizServer] Bad magic, dropping connection.");
+        if (hdr.magic != MAGIC_V2) {
+            std::ostringstream oss;
+            oss << "[GVizServer] Unknown magic 0x" << std::hex << std::uppercase
+                << hdr.magic << " — dropping connection (expected protocol v2).";
+            GVLOG_WARN(oss.str());
             return;
         }
 
@@ -119,27 +179,57 @@ void GVizServer::recvLoop(int clientFd) {
         frame.type   = static_cast<MsgType>(hdr.type);
         frame.seq_id = hdr.seq_id;
 
-        // Label
+        // ── Label ─────────────────────────────────────────────────────────────
         if (hdr.label_len > 0) {
             frame.label.resize(hdr.label_len);
             if (!recvExact(clientFd, frame.label.data(), hdr.label_len)) return;
         }
 
-        // Variables
+        // ── Variables ─────────────────────────────────────────────────────────
         frame.vars.resize(hdr.n_vars);
-        if (hdr.n_vars > 0) {
+        if (hdr.n_vars > 0)
             if (!recvExact(clientFd, frame.vars.data(),
                            hdr.n_vars * sizeof(GVizVarEntry))) return;
-        }
 
-        // Edges
+        // ── Edges ─────────────────────────────────────────────────────────────
         frame.edges.resize(hdr.n_edges);
-        if (hdr.n_edges > 0) {
+        if (hdr.n_edges > 0)
             if (!recvExact(clientFd, frame.edges.data(),
                            hdr.n_edges * sizeof(GVizEdgeEntry))) return;
+
+        // ── Point clouds (v2) ─────────────────────────────────────────────────
+        for (uint16_t ci = 0; ci < hdr.n_clouds; ++ci) {
+            GVizCloudHeader ch{};
+            if (!recvExact(clientFd, &ch, sizeof(ch))) return;
+
+            DecodedCloud dc;
+            dc.point_size = ch.point_size;
+            dc.default_color = { ch.default_color[0], ch.default_color[1],
+                                  ch.default_color[2], ch.default_color[3] };
+
+            // Positions
+            dc.positions.resize(ch.n_points);
+            if (ch.n_points > 0)
+                if (!recvExact(clientFd, dc.positions.data(),
+                               ch.n_points * 3 * sizeof(float))) return;
+
+            // Per-point colors
+            if (ch.has_colors && ch.n_points > 0) {
+                dc.colors.resize(ch.n_points);
+                if (!recvExact(clientFd, dc.colors.data(),
+                               ch.n_points * 4)) return;
+            }
+
+            frame.point_clouds.push_back(std::move(dc));
         }
 
-        // Overwrite pending (last-write-wins, GUI throttles naturally at 60 Hz)
+        // ── Primitives (v2) ───────────────────────────────────────────────────
+        frame.primitives.resize(hdr.n_primitives);
+        if (hdr.n_primitives > 0)
+            if (!recvExact(clientFd, frame.primitives.data(),
+                           hdr.n_primitives * sizeof(GVizPrimEntry))) return;
+
+        // Last-write-wins
         {
             std::lock_guard<std::mutex> g(mtx_);
             pending_ = std::move(frame);
@@ -169,44 +259,119 @@ bool GVizServer::poll(FactorGraphState& state) {
 
 static VariableType toVarType(gviz_ipc::VarType t) {
     switch (t) {
-    case gviz_ipc::VarType::Pose2:  return VariableType::Pose2;
-    case gviz_ipc::VarType::Pose3:  return VariableType::Pose3;
-    case gviz_ipc::VarType::Point2: return VariableType::Point2;
-    case gviz_ipc::VarType::Point3: return VariableType::Point3;
-    default:                        return VariableType::Unknown;
+    case VarType::Pose2:  return VariableType::Pose2;
+    case VarType::Pose3:  return VariableType::Pose3;
+    case VarType::Point2: return VariableType::Point2;
+    case VarType::Point3: return VariableType::Point3;
+    default:              return VariableType::Unknown;
     }
 }
 
-static FactorType toFactorType(gviz_ipc::FactorType t) {
+static gtsam_viz::FactorType toFactorType(gviz_ipc::FactorType t) {
     switch (t) {
-    case gviz_ipc::FactorType::Prior:      return FactorType::Prior;
-    case gviz_ipc::FactorType::Between:    return FactorType::Between;
-    case gviz_ipc::FactorType::Projection: return FactorType::Projection;
-    default:                               return FactorType::Custom;
+    case gviz_ipc::FactorType::Prior:      return gtsam_viz::FactorType::Prior;
+    case gviz_ipc::FactorType::Between:    return gtsam_viz::FactorType::Between;
+    case gviz_ipc::FactorType::Projection: return gtsam_viz::FactorType::Projection;
+    default:                               return gtsam_viz::FactorType::Custom;
     }
+}
+
+// Convert DecodedClouds → PointCloud structs for FactorGraphState
+static std::vector<PointCloud> toClouds(const std::vector<DecodedCloud>& dcs) {
+    std::vector<PointCloud> out;
+    out.reserve(dcs.size());
+    for (auto& dc : dcs) {
+        PointCloud pc;
+        pc.point_size    = dc.point_size;
+        pc.default_color = { dc.default_color[0], dc.default_color[1],
+                              dc.default_color[2], dc.default_color[3] };
+        pc.points.reserve(dc.positions.size());
+        for (auto& p : dc.positions)
+            pc.points.push_back(toRenderCoords(p[0], p[1], p[2]));
+        if (!dc.colors.empty()) {
+            pc.colors.reserve(dc.colors.size());
+            for (auto& c : dc.colors)
+                pc.colors.push_back({ c[0], c[1], c[2], c[3] });
+        }
+        out.push_back(std::move(pc));
+    }
+    return out;
+}
+
+// Convert GVizPrimEntry → Primitive structs
+static std::vector<Primitive> toPrimitives(const std::vector<gviz_ipc::GVizPrimEntry>& entries) {
+    std::vector<Primitive> out;
+    out.reserve(entries.size());
+    for (auto& e : entries) {
+        Primitive p;
+        p.type  = static_cast<PrimType>(e.prim_type);
+        p.color = { e.color[0], e.color[1], e.color[2], e.color[3] };
+        std::memcpy(p.data, e.data, sizeof(p.data));
+        switch (p.type) {
+        case PrimType::Line:
+        case PrimType::Arrow:
+            convertVec3Payload(p.data, 0);
+            convertVec3Payload(p.data, 3);
+            break;
+        case PrimType::Box: {
+            convertVec3Payload(p.data, 0);
+            convertVec3Payload(p.data, 3);
+            glm::mat3 R = rowMajorRotationToRender(&p.data[6]);
+            writeRenderRotationRowMajor(R, &p.data[6]);
+            break;
+        }
+        case PrimType::Sphere:
+            convertVec3Payload(p.data, 0);
+            break;
+        case PrimType::Cone:
+            convertVec3Payload(p.data, 0);
+            convertVec3Payload(p.data, 3);
+            break;
+        case PrimType::Cylinder:
+            convertVec3Payload(p.data, 0);
+            convertVec3Payload(p.data, 3);
+            break;
+        case PrimType::CoordFrame: {
+            convertVec3Payload(p.data, 0);
+            glm::mat3 R = rowMajorRotationToRender(&p.data[4]);
+            writeRenderRotationRowMajor(R, &p.data[4]);
+            break;
+        }
+        }
+        out.push_back(p);
+    }
+    return out;
 }
 
 void GVizServer::applyFrame(const GVizFrame& frame, FactorGraphState& state) {
 
+    // ── Standalone cloud/primitive messages ───────────────────────────────────
     if (frame.type == MsgType::Clear) {
         state.clear();
         return;
     }
+    if (frame.type == MsgType::PointCloud) {
+        state.setPointClouds(toClouds(frame.point_clouds));
+        return;
+    }
+    if (frame.type == MsgType::Primitives) {
+        state.setPrimitives(toPrimitives(frame.primitives));
+        return;
+    }
 
-    // For Replace: rebuild variable list completely
-    // For Append / ValuesOnly: update existing, add new
+    // ── Graph update ──────────────────────────────────────────────────────────
     bool replace = (frame.type == MsgType::Replace);
 
     if (replace) {
-        // Directly overwrite variable metadata without touching GTSAM objects
-        // (we have no GTSAM graph here — only visual metadata)
         state.clearVisualOnly();
+        if (!frame.point_clouds.empty()) state.clearPointClouds();
+        if (!frame.primitives.empty())   state.clearPrimitives();
     }
 
+    // Apply variables (includes covariance data if has_covariance=1)
     for (auto& ve : frame.vars) {
         VariableNode vn;
-        vn.key      = ve.key;
-        // Build label from key
+        vn.key = ve.key;
         try {
             gtsam::Symbol sym(ve.key);
             std::ostringstream oss; oss << sym.chr() << sym.index();
@@ -214,22 +379,19 @@ void GVizServer::applyFrame(const GVizFrame& frame, FactorGraphState& state) {
         } catch (...) {
             vn.label = "k" + std::to_string(ve.key);
         }
-        vn.type       = toVarType(static_cast<gviz_ipc::VarType>(ve.var_type));
-        vn.position3d = { ve.position[0], ve.position[1], ve.position[2] };
-
-        // Rebuild glm::mat4 from column-major float[16]
-        vn.transform = glm::mat4(
-            ve.transform[0],  ve.transform[1],  ve.transform[2],  ve.transform[3],
-            ve.transform[4],  ve.transform[5],  ve.transform[6],  ve.transform[7],
-            ve.transform[8],  ve.transform[9],  ve.transform[10], ve.transform[11],
-            ve.transform[12], ve.transform[13], ve.transform[14], ve.transform[15]
-        );
+        vn.type       = toVarType(static_cast<VarType>(ve.var_type));
+        vn.position3d = toRenderCoords(ve.position[0], ve.position[1], ve.position[2]);
+        vn.transform  = toRenderTransform(ve.transform);
+        vn.has_covariance = (ve.has_covariance != 0);
+        if (vn.has_covariance) {
+            std::memcpy(vn.covariance3d, ve.covariance, sizeof(vn.covariance3d));
+            convertCovarianceRowMajor(vn.covariance3d);
+        }
 
         state.upsertVariable(std::move(vn));
     }
 
     if (frame.type == MsgType::ValuesOnly) {
-        // Only positions changed, skip topology update
         state.notifyChangedPublic();
         return;
     }
@@ -239,23 +401,27 @@ void GVizServer::applyFrame(const GVizFrame& frame, FactorGraphState& state) {
     size_t idx = replace ? 0 : state.factors().size();
     for (auto& ee : frame.edges) {
         FactorNode fn;
-        fn.index       = idx++;
-        fn.type        = toFactorType(static_cast<gviz_ipc::FactorType>(ee.factor_type));
-        fn.error       = ee.error;
-        fn.keys        = { ee.key_from, ee.key_to };
-        fn.label       = (fn.type == FactorType::Prior)   ? "Prior"
-                       : (fn.type == FactorType::Between)  ? "Between"
-                       : (fn.type == FactorType::Projection)? "Proj"
-                                                            : "Custom";
-        // Position = centroid of connected variables
-        glm::vec2 sum{0,0}; int cnt = 0;
-        for (auto k : fn.keys) {
+        fn.index  = idx++;
+        fn.type   = toFactorType(static_cast<gviz_ipc::FactorType>(ee.factor_type));
+        fn.error  = ee.error;
+        fn.keys   = { ee.key_from, ee.key_to };
+        fn.label  = (fn.type == FactorType::Prior)      ? "Prior"
+                  : (fn.type == FactorType::Between)     ? "Between"
+                  : (fn.type == FactorType::Projection)  ? "Proj"
+                                                         : "Custom";
+        glm::vec2 sum{0, 0}; int cnt = 0;
+        for (auto k : fn.keys)
             for (auto& vn : state.variables())
                 if (vn.key == k) { sum += vn.pos; ++cnt; }
-        }
-        fn.pos = cnt > 0 ? sum / float(cnt) : glm::vec2{0,0};
+        fn.pos = cnt > 0 ? sum / float(cnt) : glm::vec2{0, 0};
         state.appendFactorVisual(std::move(fn));
     }
+
+    // Embedded clouds/prims in Replace/Append messages
+    if (!frame.point_clouds.empty())
+        state.setPointClouds(toClouds(frame.point_clouds));
+    if (!frame.primitives.empty())
+        state.setPrimitives(toPrimitives(frame.primitives));
 
     state.notifyChangedPublic();
 
@@ -263,7 +429,9 @@ void GVizServer::applyFrame(const GVizFrame& frame, FactorGraphState& state) {
         GVLOG_DEBUG("[IPC] seq=" + std::to_string(frame.seq_id)
                     + " \"" + frame.label + "\""
                     + " vars=" + std::to_string(state.variables().size())
-                    + " factors=" + std::to_string(state.factors().size()));
+                    + " factors=" + std::to_string(state.factors().size())
+                    + " clouds=" + std::to_string(state.pointClouds().size())
+                    + " prims=" + std::to_string(state.primitives().size()));
     }
 }
 

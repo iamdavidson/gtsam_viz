@@ -43,7 +43,6 @@ private:
     bool showSettings_   = false;
 
     ImGuiID dockspaceId_ = 0;
-    GVizServer ipcServer_;
     bool    firstFrame_  = true;
 };
 
