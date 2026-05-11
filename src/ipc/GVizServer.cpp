@@ -145,10 +145,6 @@ void GVizServer::acceptLoop() {
         ::close(clientFd);
         clientConnected_ = false;
         GVLOG_INFO("[GVizServer] Client disconnected.");
-
-        std::lock_guard<std::mutex> g(mtx_);
-        pending_.reset();
-        hasNew_ = false;
     }
 }
 
