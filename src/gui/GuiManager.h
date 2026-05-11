@@ -16,7 +16,7 @@ public:
     GuiManager();
     ~GuiManager() = default;
 
-    bool init(Renderer3D& renderer, GVizServer& server);
+    bool init(Renderer3D& renderer, GVizServer& server, float uiScale = 1.f);
     void draw();
 
     FactorGraphState& graphState() { return state_; }
@@ -26,7 +26,7 @@ private:
     void drawDockspace();
     void drawAboutWindow();
     void drawSettingsWindow();
-    void applyDarkTheme();
+    void applyDarkTheme(float uiScale);
     void saveSettings();
 
     FactorGraphState state_;
@@ -43,6 +43,7 @@ private:
     bool showSettings_   = false;
 
     ImGuiID dockspaceId_ = 0;
+    float   uiScale_     = 1.f;
     bool    firstFrame_  = true;
 };
 

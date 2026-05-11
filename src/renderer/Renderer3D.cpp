@@ -87,17 +87,13 @@ void main(){
 })";
 
 static Eigen::Matrix3f covarianceToRenderCoords(const Eigen::Matrix3f& cov) {
-    Eigen::Matrix3f swap;
-    swap << 1.f, 0.f, 0.f,
-            0.f, 0.f, 1.f,
-            0.f, 1.f, 0.f;
-    return swap * cov * swap.transpose();
+    return cov;
 }
 
 // ── Camera ────────────────────────────────────────────────────────────────────
 
 glm::mat4 Camera::view() const {
-    return glm::lookAt(position(), target, glm::vec3(0,1,0));
+    return glm::lookAt(position(), target, glm::vec3(0,0,1));
 }
 glm::mat4 Camera::projection(float aspect) const {
     return glm::perspective(glm::radians(fov), aspect, 0.01f, 2000.f);
@@ -106,8 +102,8 @@ glm::vec3 Camera::position() const {
     float yR = glm::radians(yaw), pR = glm::radians(pitch);
     return target + distance * glm::vec3(
         std::cos(pR)*std::cos(yR),
-        std::sin(pR),
-        std::cos(pR)*std::sin(yR));
+        std::cos(pR)*std::sin(yR),
+        std::sin(pR));
 }
 void Camera::orbit(float dYaw, float dPitch) {
     yaw  += dYaw;
@@ -118,15 +114,15 @@ void Camera::zoom(float delta) {
 }
 void Camera::pan(glm::vec2 delta) {
     glm::vec3 front = glm::normalize(target - position());
-    glm::vec3 right = glm::normalize(glm::cross(front, glm::vec3(0,1,0)));
+    glm::vec3 right = glm::normalize(glm::cross(front, glm::vec3(0,0,1)));
     glm::vec3 up    = glm::normalize(glm::cross(right, front));
     target += right * (-delta.x * 0.01f * distance)
             + up    * ( delta.y * 0.01f * distance);
 }
 void Camera::moveGround(float forward, float right_) {
     float yR = glm::radians(yaw);
-    glm::vec3 fwd  = glm::normalize(glm::vec3(std::cos(yR), 0, std::sin(yR)));
-    glm::vec3 rght = glm::normalize(glm::cross(fwd, glm::vec3(0,1,0)));
+    glm::vec3 fwd  = glm::normalize(glm::vec3(std::cos(yR), std::sin(yR), 0));
+    glm::vec3 rght = glm::normalize(glm::cross(fwd, glm::vec3(0,0,1)));
     float speed    = distance * 0.8f;
     target += fwd * forward * speed + rght * right_ * speed;
 }
@@ -416,7 +412,7 @@ GLuint Renderer3D::render(const FactorGraphState& state) {
 
             case PrimType::Box: {
                 glm::vec3 center{d[0],d[1],d[2]}, he{d[3],d[4],d[5]};
-                glm::mat3 rot(d[6],d[7],d[8], d[9],d[10],d[11], d[12],d[13],d[14]);
+                glm::mat3 rot(d[6],d[9],d[12], d[7],d[10],d[13], d[8],d[11],d[14]);
                 solidBuffer_.clear();
                 appendBox(center, he, rot);
                 flushSolid(col, VP);
@@ -575,8 +571,8 @@ void Renderer3D::buildGridMesh() {
     verts.reserve((gridHalf*2+1)*4*3);
     for (int i = -gridHalf; i <= gridHalf; ++i) {
         float fi = float(i) * gridStep, fh = float(gridHalf) * gridStep;
-        verts.insert(verts.end(), { fi, 0.f,-fh, fi, 0.f, fh });
-        verts.insert(verts.end(), {-fh, 0.f, fi, fh, 0.f, fi });
+        verts.insert(verts.end(), { fi,-fh, 0.f, fi, fh, 0.f });
+        verts.insert(verts.end(), {-fh, fi, 0.f, fh, fi, 0.f });
     }
     gridVerts_ = (int)(verts.size()/3);
 
@@ -737,7 +733,7 @@ void Renderer3D::appendCone(glm::vec3 apex, glm::vec3 base_center, float radius)
     glm::vec3 Z = axis / len;
 
     // Build orthonormal frame
-    glm::vec3 ref = (std::abs(Z.y) < 0.9f) ? glm::vec3(0,1,0) : glm::vec3(1,0,0);
+    glm::vec3 ref = (std::abs(Z.z) < 0.9f) ? glm::vec3(0,0,1) : glm::vec3(1,0,0);
     glm::vec3 X   = glm::normalize(glm::cross(ref, Z));
     glm::vec3 Y   = glm::cross(Z, X);
 
@@ -768,7 +764,7 @@ void Renderer3D::appendCylinder(glm::vec3 center, glm::vec3 axis,
     float len = glm::length(axis);
     if (len < 1e-7f) return;
     glm::vec3 Z   = axis / len;
-    glm::vec3 ref = (std::abs(Z.y) < 0.9f) ? glm::vec3(0,1,0) : glm::vec3(1,0,0);
+    glm::vec3 ref = (std::abs(Z.z) < 0.9f) ? glm::vec3(0,0,1) : glm::vec3(1,0,0);
     glm::vec3 X   = glm::normalize(glm::cross(ref, Z));
     glm::vec3 Y   = glm::cross(Z, X);
 

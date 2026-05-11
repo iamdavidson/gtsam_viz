@@ -16,21 +16,15 @@ namespace gtsam_viz {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 static glm::vec3 toRenderCoords(float x, float y, float z) {
-    return {x, z, y};
+    return {x, y, z};
 }
 
 static glm::mat4 toRenderTransform(const glm::mat3& rotation, const glm::vec3& translation) {
-    const glm::mat3 swap(1.f, 0.f, 0.f,
-                         0.f, 0.f, 1.f,
-                         0.f, 1.f, 0.f);
-    const glm::mat3 renderRotation = swap * rotation * swap;
-    const glm::vec3 renderTranslation = swap * translation;
-
     glm::mat4 transform(1.f);
-    transform[0] = glm::vec4(renderRotation[0], 0.f);
-    transform[1] = glm::vec4(renderRotation[1], 0.f);
-    transform[2] = glm::vec4(renderRotation[2], 0.f);
-    transform[3] = glm::vec4(renderTranslation, 1.f);
+    transform[0] = glm::vec4(rotation[0], 0.f);
+    transform[1] = glm::vec4(rotation[1], 0.f);
+    transform[2] = glm::vec4(rotation[2], 0.f);
+    transform[3] = glm::vec4(translation, 1.f);
     return transform;
 }
 

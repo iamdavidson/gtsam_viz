@@ -8,7 +8,7 @@
 namespace gtsam_viz {
 
 struct Camera {
-    float yaw        = -90.f;
+    float yaw        = 180.f;
     float pitch      = 30.f;
     float distance   = 15.f;
     glm::vec3 target = {0, 0, 0};

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <fstream>
 #include <sstream>
+#include <algorithm>
 
 namespace gtsam_viz {
 
@@ -69,17 +70,20 @@ void Viewport3DPanel::draw() {
              cam.yaw, cam.pitch, cam.distance,
              renderer_.followMode ? "  [FOLLOW]" : "");
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddText({imgPos.x+8, imgPos.y+8}, IM_COL32(245,242,242,200), info);
+    float uiScale = std::max(1.f, ImGui::GetFontSize() / 16.f);
+    dl->AddText({imgPos.x + 8 * uiScale, imgPos.y + 8 * uiScale},
+                IM_COL32(245,242,242,200), info);
 
     // Key hint overlay (bottom-left)
     const char* hint = "LMB: Orbit  Shift+LMB / MMB: Pan  RMB: Zoom  Scroll: Zoom  WASD/Arrows: Pan  Ctrl+S: Save";
     ImVec2 hintSz = ImGui::CalcTextSize(hint);
-    dl->AddText({imgPos.x+8, imgPos.y+avail.y-hintSz.y-6},
+    dl->AddText({imgPos.x + 8 * uiScale, imgPos.y + avail.y - hintSz.y - 6 * uiScale},
                 IM_COL32(160,155,155,150), hint);
 }
 
 void Viewport3DPanel::drawToolbar() {
     auto& R = renderer_;
+    float uiScale = std::max(1.f, ImGui::GetFontSize() / 16.f);
 
     // Row 1: graph toggles
     ImGui::Checkbox("Axes",        &R.showAxes);       ImGui::SameLine();
@@ -88,7 +92,7 @@ void Viewport3DPanel::drawToolbar() {
         ImGui::Checkbox("Fehlerfarben", &R.colorEdgesByError);
         if (R.colorEdgesByError) {
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(60);
+            ImGui::SetNextItemWidth(76 * uiScale);
             ImGui::SliderFloat("Scale##edgeerr", &R.edgeErrorScale, 0.05f, 10.f, "%.2f");
         }
         ImGui::SameLine();
@@ -96,14 +100,14 @@ void Viewport3DPanel::drawToolbar() {
     ImGui::Checkbox("Kovarianzen", &R.showCovEllipsoids);
     if (R.showCovEllipsoids) {
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(60);
+        ImGui::SetNextItemWidth(70 * uiScale);
         ImGui::SliderFloat("σ×##cov", &R.covScale, 1.f, 10.f, "%.1f");
     }
     ImGui::SameLine(0,16);
     ImGui::Checkbox("Punktwolken", &R.showPointClouds);
     if (R.showPointClouds) {
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(55);
+        ImGui::SetNextItemWidth(62 * uiScale);
         ImGui::SliderFloat("px##ps", &R.globalPointSize, 0.f, 20.f, "%.0f");
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("0 = pro-Wolke-Größe");
@@ -114,26 +118,26 @@ void Viewport3DPanel::drawToolbar() {
     ImGui::Checkbox("Follow", &R.followMode);
 
     // Row 2: sizes + grid + view presets
-    ImGui::SetNextItemWidth(80);
+    ImGui::SetNextItemWidth(92 * uiScale);
     ImGui::SliderFloat("Axis##al", &R.axisLength, 0.05f, 5.f);   ImGui::SameLine();
-    ImGui::SetNextItemWidth(70);
+    ImGui::SetNextItemWidth(82 * uiScale);
     ImGui::SliderFloat("Node##ns", &R.nodeSize,   0.01f, 1.f);
 
     ImGui::SameLine(0,20);
-    ImGui::SetNextItemWidth(70);
+    ImGui::SetNextItemWidth(82 * uiScale);
     int gh = R.gridHalf;
     if (ImGui::SliderInt("Grid##gh", &gh, 5, 200)) R.gridHalf = gh;
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(60);
+    ImGui::SetNextItemWidth(72 * uiScale);
     float gs = R.gridStep;
     if (ImGui::SliderFloat("Step##gs", &gs, 0.1f, 20.f, "%.1f")) R.gridStep = gs;
 
     ImGui::SameLine(0,20);
-    if (ImGui::Button("Front")) { R.camera().yaw=-90; R.camera().pitch=0; }
+    if (ImGui::Button("Front")) { R.camera().yaw=180; R.camera().pitch=0; }
     ImGui::SameLine();
-    if (ImGui::Button("Top"))   { R.camera().yaw=-90; R.camera().pitch=89; }
+    if (ImGui::Button("Top"))   { R.camera().yaw=180; R.camera().pitch=89; }
     ImGui::SameLine();
-    if (ImGui::Button("Side"))  { R.camera().yaw=0;   R.camera().pitch=10; }
+    if (ImGui::Button("Side"))  { R.camera().yaw=-90; R.camera().pitch=10; }
     ImGui::SameLine();
     if (ImGui::Button("Reset")) { R.camera()=Camera{}; }
 
@@ -144,17 +148,19 @@ void Viewport3DPanel::drawSettings() {
     ImGui::SeparatorText("Camera Sensitivity");
     ImGui::Spacing();
 
-    ImGui::SetNextItemWidth(200);
+    float uiScale = std::max(1.f, ImGui::GetFontSize() / 16.f);
+
+    ImGui::SetNextItemWidth(240 * uiScale);
     ImGui::SliderFloat("Orbit  (LMB drag)",   &cfg_.orbitSensitivity,      0.05f,  2.0f,  "%.3f");
-    ImGui::SetNextItemWidth(200);
+    ImGui::SetNextItemWidth(240 * uiScale);
     ImGui::SliderFloat("Zoom   (Scroll)",     &cfg_.zoomScrollSensitivity, 0.01f,  0.50f, "%.3f");
-    ImGui::SetNextItemWidth(200);
+    ImGui::SetNextItemWidth(240 * uiScale);
     ImGui::SliderFloat("Zoom   (RMB drag)",   &cfg_.zoomDragSensitivity,   0.001f, 0.02f, "%.4f");
-    ImGui::SetNextItemWidth(200);
+    ImGui::SetNextItemWidth(240 * uiScale);
     ImGui::SliderFloat("Pan    (MMB drag)",   &cfg_.panSensitivity,        0.001f, 0.05f, "%.4f");
-    ImGui::SetNextItemWidth(200);
+    ImGui::SetNextItemWidth(240 * uiScale);
     ImGui::SliderFloat("Pan    (Shift+LMB)",  &cfg_.shiftPanSensitivity,   0.001f, 0.02f, "%.4f");
-    ImGui::SetNextItemWidth(200);
+    ImGui::SetNextItemWidth(240 * uiScale);
     ImGui::SliderFloat("WASD / Pfeiltasten",  &cfg_.wasdSensitivity,       0.05f,  5.0f,  "%.2f");
 
     ImGui::Spacing();

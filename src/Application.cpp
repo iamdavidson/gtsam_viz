@@ -9,6 +9,7 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <algorithm>
 
 namespace gtsam_viz {
 
@@ -74,10 +75,13 @@ bool Application::init() {
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 
-    // Fonts – use built-in (ProggyClean at 13px) + a slightly larger one
-    io.Fonts->AddFontDefault();
-    // Default font for code/monospace in log
-    io.FontDefault = io.Fonts->AddFontDefault();
+    uiScale_ = computeUiScale();
+    ImFontConfig fontCfg;
+    fontCfg.SizePixels = 16.f * uiScale_;
+    fontCfg.OversampleH = 2;
+    fontCfg.OversampleV = 2;
+    io.FontDefault = io.Fonts->AddFontDefault(&fontCfg);
+    io.FontGlobalScale = 1.f;
 
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 430");
@@ -89,7 +93,7 @@ bool Application::init() {
     }
 
     // ── GUI ───────────────────────────────────────────────────────────────────
-    if (!gui_.init(renderer_, ipcServer_)) {
+    if (!gui_.init(renderer_, ipcServer_, uiScale_)) {
         std::cerr << "[GTSAMViz] GuiManager initialization failed\n";
         return false;
     }
@@ -155,6 +159,29 @@ void Application::processEvents() {
         if (glfwGetKey(window_, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window_, GLFW_TRUE);
     }
+}
+
+float Application::computeUiScale() const {
+    if (cfg_.uiScale > 0.f)
+        return std::clamp(cfg_.uiScale, 0.75f, 2.5f);
+
+    float xscale = 1.f, yscale = 1.f;
+    if (window_)
+        glfwGetWindowContentScale(window_, &xscale, &yscale);
+
+    float monitorScale = 1.f;
+    GLFWmonitor* monitor = window_ ? glfwGetWindowMonitor(window_) : nullptr;
+    if (!monitor)
+        monitor = glfwGetPrimaryMonitor();
+    if (monitor) {
+        if (const GLFWvidmode* mode = glfwGetVideoMode(monitor)) {
+            float sx = static_cast<float>(mode->width) / 1920.f;
+            float sy = static_cast<float>(mode->height) / 1080.f;
+            monitorScale = std::min(sx, sy);
+        }
+    }
+
+    return std::clamp(std::max({xscale, yscale, monitorScale}), 1.f, 1.75f);
 }
 
 void Application::glfwErrorCallback(int err, const char* desc) {

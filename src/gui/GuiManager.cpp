@@ -5,14 +5,16 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <implot.h>
+#include <algorithm>
 
 namespace gtsam_viz {
 
 GuiManager::GuiManager() : state_() {}
 
-bool GuiManager::init(Renderer3D& renderer, GVizServer& server) {
+bool GuiManager::init(Renderer3D& renderer, GVizServer& server, float uiScale) {
+    uiScale_ = std::clamp(uiScale, 0.75f, 2.5f);
     server_ = &server;
-    applyDarkTheme();
+    applyDarkTheme(uiScale_);
 
     optimizerPanel_  = std::make_unique<OptimizerPanel>(state_);
     logPanel_        = std::make_unique<LogPanel>();
@@ -44,7 +46,7 @@ void GuiManager::draw() {
         server_->poll(state_);
 
     // ── 3D Viewport (main / central window) ───────────────────────────────────
-    ImGui::SetNextWindowSize({900,700}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({900 * uiScale_, 700 * uiScale_}, ImGuiCond_FirstUseEver);
     if (ImGui::Begin("3D Viewport##panel", nullptr,
                      ImGuiWindowFlags_NoScrollbar |
                      ImGuiWindowFlags_NoScrollWithMouse)) {
@@ -53,28 +55,28 @@ void GuiManager::draw() {
     ImGui::End();
 
     // ── Stats panel (right) ───────────────────────────────────────────────────
-    ImGui::SetNextWindowSize({320,600}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({360 * uiScale_, 600 * uiScale_}, ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Stats##panel")) {
         optimizerPanel_->draw();
     }
     ImGui::End();
 
     // ── Bridge panel (right, tabbed with Stats) ───────────────────────────────
-    ImGui::SetNextWindowSize({320,300}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({360 * uiScale_, 300 * uiScale_}, ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Live Bridge##panel")) {
         bridgePanel_->draw();
     }
     ImGui::End();
 
     // ── Log (bottom strip) ────────────────────────────────────────────────────
-    ImGui::SetNextWindowSize({900,160}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({900 * uiScale_, 180 * uiScale_}, ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Log##panel")) {
         logPanel_->draw();
     }
     ImGui::End();
 
     // ── Settings panel ────────────────────────────────────────────────────────
-    ImGui::SetNextWindowSize({320,280}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({360 * uiScale_, 280 * uiScale_}, ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Settings##panel")) {
         drawSettingsWindow();
     }
@@ -128,9 +130,10 @@ void GuiManager::drawMainMenuBar() {
     char buf[120];
     snprintf(buf, sizeof(buf), "Vars: %zu  Factors: %zu  Error: %.5f",
              state_.variables().size(), state_.factors().size(), err);
-    float connW = ImGui::CalcTextSize(connStr).x + 24;
-    float tw    = ImGui::CalcTextSize(buf).x + connW + 16;
-    ImGui::SetCursorPosX(ImGui::GetIO().DisplaySize.x - tw);
+    float connW = ImGui::CalcTextSize(connStr).x + 24 * uiScale_;
+    float tw    = ImGui::CalcTextSize(buf).x + connW + 16 * uiScale_;
+    float minX  = ImGui::GetCursorPosX() + 12 * uiScale_;
+    ImGui::SetCursorPosX(std::max(minX, ImGui::GetIO().DisplaySize.x - tw));
     ImGui::TextColored(connCol, "%s", connStr);
     ImGui::SameLine();
     ImGui::TextDisabled("%s", buf);
@@ -169,9 +172,11 @@ void GuiManager::drawDockspace() {
             ImGuiDockNodeFlags_PassthruCentralNode | ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dockspaceId_, vp->Size);
 
-        // Split: center (75%) | right sidebar (25%)
+        // Split: center | right sidebar. Keep the sidebar readable after UI scaling.
         ImGuiID center, right;
-        ImGui::DockBuilderSplitNode(dockspaceId_, ImGuiDir_Right, 0.25f, &right, &center);
+        float rightRatio = std::clamp((360.f * uiScale_) / std::max(vp->Size.x, 1.f),
+                                      0.24f, 0.34f);
+        ImGui::DockBuilderSplitNode(dockspaceId_, ImGuiDir_Right, rightRatio, &right, &center);
 
         // Center: 3D viewport (top, 85%) + Log (bottom, 15%)
         ImGuiID viewport, logStrip;
@@ -197,7 +202,7 @@ void GuiManager::drawDockspace() {
 
 // ── About ─────────────────────────────────────────────────────────────────────
 void GuiManager::drawAboutWindow() {
-    ImGui::SetNextWindowSize({400,220}, ImGuiCond_Always);
+    ImGui::SetNextWindowSize({460 * uiScale_, 260 * uiScale_}, ImGuiCond_Always);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(),
                             ImGuiCond_Always, {0.5f,0.5f});
     if (!ImGui::Begin("About GTSAMViz", &showAbout_,
@@ -226,7 +231,7 @@ void GuiManager::drawAboutWindow() {
 //   #F5F2F2  (0.961, 0.949, 0.949)  – off-white text / light surfaces
 //   #5A7ACD  (0.353, 0.478, 0.804)  – blue accent (interactive)
 //   #FEB05D  (0.996, 0.690, 0.365)  – orange accent (highlights / marks)
-void GuiManager::applyDarkTheme() {
+void GuiManager::applyDarkTheme(float uiScale) {
     ImGuiStyle& s = ImGui::GetStyle();
     s.WindowRounding    = 4.f;  s.FrameRounding  = 3.f;
     s.ScrollbarRounding = 4.f;  s.GrabRounding   = 3.f;
@@ -318,6 +323,8 @@ void GuiManager::applyDarkTheme() {
     // misc
     c[ImGuiCol_NavHighlight]       = kOrange;
     c[ImGuiCol_NavWindowingHighlight] = kOrange;
+
+    s.ScaleAllSizes(uiScale);
 }
 
 // ── Settings window ───────────────────────────────────────────────────────────

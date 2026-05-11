@@ -3,3 +3,5 @@ build_release/
 build/
 .vscode/
 .cache/
+imgui.ini
+settings.cfg

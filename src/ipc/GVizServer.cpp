@@ -20,14 +20,15 @@ GVizServer::GVizServer()  = default;
 GVizServer::~GVizServer() { stop(); }
 
 static glm::vec3 toRenderCoords(float x, float y, float z) {
-    return {x, z, y};
+    return {x, y, z};
 }
 
 static glm::mat3 toRenderRotation(const glm::mat3& rotation) {
-    const glm::mat3 swap(1.f, 0.f, 0.f,
-                         0.f, 0.f, 1.f,
-                         0.f, 1.f, 0.f);
-    return swap * rotation * swap;
+    return rotation;
+}
+
+static glm::mat3 toRenderCovariance(const glm::mat3& covariance) {
+    return covariance;
 }
 
 static glm::mat4 toRenderTransform(const float transform[16]) {
@@ -74,7 +75,7 @@ static void convertCovarianceRowMajor(float covariance[9]) {
         covariance[0], covariance[3], covariance[6],
         covariance[1], covariance[4], covariance[7],
         covariance[2], covariance[5], covariance[8]);
-    glm::mat3 renderCov = toRenderRotation(cov);
+    glm::mat3 renderCov = toRenderCovariance(cov);
     writeRenderRotationRowMajor(renderCov, covariance);
 }
 
@@ -315,7 +316,6 @@ static std::vector<Primitive> toPrimitives(const std::vector<gviz_ipc::GVizPrimE
             break;
         case PrimType::Box: {
             convertVec3Payload(p.data, 0);
-            convertVec3Payload(p.data, 3);
             glm::mat3 R = rowMajorRotationToRender(&p.data[6]);
             writeRenderRotationRowMajor(R, &p.data[6]);
             break;

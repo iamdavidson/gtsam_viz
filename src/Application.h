@@ -14,6 +14,7 @@ struct AppConfig {
     std::string title   = "GTSAMViz – Factor Graph Debugger";
     bool        vsync   = true;
     bool        msaa4   = false;
+    float       uiScale = 0.f;  // 0 = auto-detect from monitor/content scale
 };
 
 class Application {
@@ -28,6 +29,7 @@ private:
     void beginFrame();
     void endFrame();
     void processEvents();
+    float computeUiScale() const;
 
     static void glfwErrorCallback(int err, const char* desc);
     static void framebufferSizeCallback(GLFWwindow* w, int width, int height);
@@ -37,6 +39,7 @@ private:
     Renderer3D  renderer_;
     GuiManager  gui_;
     GVizServer  ipcServer_;
+    float       uiScale_ = 1.f;
     bool        running_ = false;
 };
 

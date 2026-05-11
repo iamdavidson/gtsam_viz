@@ -63,16 +63,18 @@ Dein Projekt braucht:
 
 ## 4. Koordinatensystem
 
-Sende Daten im normalen GTSAM-Koordinatensystem:
+Sende Daten im normalen ROS2/RViz2- beziehungsweise GTSAM-Koordinatensystem:
 
 ```text
-X = vorwaerts / rechts je nach Backend-Konvention
-Y = zweite horizontale Achse
-Z = Hoehe
+X = Forward = rot
+Y = Left    = gruen
+Z = Up      = blau
 ```
 
-GTSAMViz konvertiert intern fuer den OpenGL-Renderer, sodass `Z` in der Anzeige
-nach oben zeigt. Du sollst also keine Achsen vor dem Senden tauschen.
+GTSAMViz verwendet fuer die 3D-Anzeige dieselbe Achsenkonvention. Du sollst also
+keine Achsen vor dem Senden tauschen. Ein Identity-Koordinatenrahmen wird in der
+GUI wie in RViz2 dargestellt: rote X-Achse nach vorne, gruene Y-Achse nach links
+und blaue Z-Achse nach oben.
 
 ## 5. CMake-Beispiel
 
