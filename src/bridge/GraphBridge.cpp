@@ -43,8 +43,20 @@ void GraphBridge::publish(const gtsam::NonlinearFactorGraph& graph,
         // Merge into accumulator
         for (auto& f : graph)
             if (f) accumulated_.push_back(f);
+        for (const auto& kv : values) {
+            if (accumulatedVals_.exists(kv.key))
+                accumulatedVals_.update(kv.key, kv.value);
+            else
+                accumulatedVals_.insert(kv.key, kv.value);
+        }
         snap.graph = accumulated_;
     } else if (mode == PublishMode::ValuesOnly) {
+        for (const auto& kv : values) {
+            if (accumulatedVals_.exists(kv.key))
+                accumulatedVals_.update(kv.key, kv.value);
+            else
+                accumulatedVals_.insert(kv.key, kv.value);
+        }
         snap.graph = accumulated_; // keep existing graph
     } else {
         // Replace: update accumulator too
@@ -141,9 +153,7 @@ bool GraphBridge::poll(FactorGraphState& state) {
 
     case PublishMode::ValuesOnly:
         // Update values only; keep existing graph structure
-        for (const auto& kv : snap->values) {
-            state.addValue(kv.key, kv.value);
-        }
+        state.updateValues(snap->values, false);
         break;
     }
 

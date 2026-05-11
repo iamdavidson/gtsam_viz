@@ -5,9 +5,12 @@
 #include "panels/OptimizerPanel.h"
 #include "panels/LogPanel.h"
 #include "panels/Viewport3DPanel.h"
+#include "panels/GraphViewPanel.h"
+#include "panels/InspectorPanel.h"
 #include "../bridge/GraphBridge.h"
 #include "../ipc/GVizServer.h"
 #include <memory>
+#include <optional>
 
 namespace gtsam_viz {
 
@@ -34,13 +37,18 @@ private:
     std::unique_ptr<OptimizerPanel>   optimizerPanel_;
     std::unique_ptr<LogPanel>         logPanel_;
     std::unique_ptr<Viewport3DPanel>  viewport3DPanel_;
+    std::unique_ptr<GraphViewPanel>   graphViewPanel_;
+    std::unique_ptr<InspectorPanel>   inspectorPanel_;
     std::unique_ptr<BridgePanel>      bridgePanel_;
+    Renderer3D*                       renderer_ = nullptr;
     GVizServer*                       server_ = nullptr;
+
+    std::optional<gtsam::Key>         selectedVariable_;
+    std::optional<size_t>             selectedFactor_;
 
     bool showAbout_      = false;
     bool showImGuiDemo_  = false;
     bool showImPlotDemo_ = false;
-    bool showSettings_   = false;
 
     ImGuiID dockspaceId_ = 0;
     float   uiScale_     = 1.f;

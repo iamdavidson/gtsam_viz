@@ -3,12 +3,25 @@
 #include <imgui.h>
 #include <vector>
 #include <algorithm>
+#include <cmath>
 
 namespace gtsam_viz {
 
-OptimizerPanel::OptimizerPanel(FactorGraphState& state) : state_(state) {}
+static const char* factorTypeName(FactorType t) {
+    switch (t) {
+    case FactorType::Prior:      return "Prior";
+    case FactorType::Between:    return "Between";
+    case FactorType::Projection: return "Projection";
+    default:                     return "Custom";
+    }
+}
+
+OptimizerPanel::OptimizerPanel(FactorGraphState& state,
+                               std::optional<size_t>* selectedFactor)
+    : state_(state), selectedFactor_(selectedFactor) {}
 
 void OptimizerPanel::draw() {
+    residualStats_ = computeResidualStats(state_.factors());
     drawSummary();
     ImGui::Separator();
     drawFactorErrorTable();
@@ -21,24 +34,27 @@ void OptimizerPanel::drawSummary() {
     auto& vars = state_.variables();
     auto& facs = state_.factors();
 
-    ImGui::TextColored({0.5f,0.85f,1.f,1.f}, "Graph Summary");
+    ImGui::TextColored({0.5f,0.85f,1.f,1.f}, "Residuals");
     ImGui::Spacing();
 
     ImGui::Text("Variables : %zu", vars.size());
     ImGui::Text("Factors   : %zu", facs.size());
+    ImGui::Text("Valid residuals : %d", residualStats_.validCount);
 
-    if (!vars.empty() && !facs.empty()) {
-        double err = state_.totalError();
-        ImGui::Spacing();
-        ImGui::Text("Total error : ");
-        ImGui::SameLine();
-        // Color: green < 0.1, yellow < 1.0, red otherwise
-        ImVec4 col = err < 0.1 ? ImVec4{0.3f,1.f,0.4f,1.f}
-                   : err < 1.0 ? ImVec4{1.f,0.85f,0.2f,1.f}
-                               : ImVec4{1.f,0.35f,0.3f,1.f};
-        ImGui::TextColored(col, "%.6f", err);
+    if (residualStats_.validCount > 0) {
+        ImGui::Text("Median / P95 / Max");
+        ImGui::Text("%.5f / %.5f / %.5f",
+                    residualStats_.median, residualStats_.p95, residualStats_.max);
+        ImGui::TextDisabled("Scale: %.5f", residualStats_.scale);
     } else {
-        ImGui::TextDisabled("No graph data.");
+        ImGui::TextDisabled("No valid non-unary residuals.");
+    }
+
+    if (residualStats_.staleCount > 0) {
+        ImGui::Spacing();
+        ImGui::TextColored({1.f,0.70f,0.25f,1.f},
+            "%d residual colors may be stale", residualStats_.staleCount);
+        ImGui::TextDisabled("Use publishValuesWithErrors(...) after optimization.");
     }
 }
 
@@ -53,16 +69,26 @@ void OptimizerPanel::drawFactorErrorTable() {
         return;
     }
 
-    ImVec2 sz = {-1, std::min(220.f, float(factors.size())*22.f + 34.f)};
-    if (ImGui::BeginTable("##ferr", 3,
+    ImGui::Checkbox("Only high", &showHighOnly_);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(130);
+    const char* filterItems[] = {"All", "Prior", "Between", "Projection", "Custom"};
+    int filterUi = typeFilter_ + 1;
+    if (ImGui::Combo("Type", &filterUi, filterItems, IM_ARRAYSIZE(filterItems)))
+        typeFilter_ = filterUi - 1;
+
+    ImVec2 sz = {-1, std::min(280.f, float(factors.size())*24.f + 42.f)};
+    if (ImGui::BeginTable("##ferr", 5,
             ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
             ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable |
             ImGuiTableFlags_SizingFixedFit, sz)) {
 
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("#",     ImGuiTableColumnFlags_DefaultSort,            36.f);
-        ImGui::TableSetupColumn("Type",  ImGuiTableColumnFlags_None,                  90.f);
-        ImGui::TableSetupColumn("Error", ImGuiTableColumnFlags_PreferSortDescending,   80.f);
+        ImGui::TableSetupColumn("#",      ImGuiTableColumnFlags_DefaultSort,           36.f);
+        ImGui::TableSetupColumn("Type",   ImGuiTableColumnFlags_None,                 86.f);
+        ImGui::TableSetupColumn("Error",  ImGuiTableColumnFlags_PreferSortDescending, 88.f);
+        ImGui::TableSetupColumn("Src",    ImGuiTableColumnFlags_None,                 48.f);
+        ImGui::TableSetupColumn("Keys",   ImGuiTableColumnFlags_None,                 44.f);
         ImGui::TableHeadersRow();
 
         // Sort
@@ -84,21 +110,40 @@ void OptimizerPanel::drawFactorErrorTable() {
             return sortDesc ? a > b : a < b;
         });
 
-        double maxE = 1e-9;
-        for (auto& f : factors) maxE = std::max(maxE, f.error);
-
         for (int oi : order) {
             auto& fn = factors[oi];
+            if (typeFilter_ >= 0 && (int)fn.type != typeFilter_) continue;
+            if (showHighOnly_ && (!fn.errorValid || fn.error < residualStats_.p95)) continue;
+
             ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0); ImGui::Text("%zu", fn.index);
-            ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(fn.label.c_str());
+            bool selected = selectedFactor_ && selectedFactor_->has_value()
+                         && **selectedFactor_ == fn.index;
+            ImGui::TableSetColumnIndex(0);
+            char id[32]; snprintf(id, sizeof(id), "%zu", fn.index);
+            if (ImGui::Selectable(id, selected,
+                    ImGuiSelectableFlags_SpanAllColumns |
+                    ImGuiSelectableFlags_AllowOverlap)) {
+                if (selectedFactor_) *selectedFactor_ = fn.index;
+            }
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextUnformatted(factorTypeName(fn.type));
             ImGui::TableSetColumnIndex(2);
-            float t = (float)(fn.error / (maxE+1e-9));
-            ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
-                ImVec4(t, 1.f-t*0.7f, 0.2f*(1-t), 0.85f));
-            char buf[32]; snprintf(buf,sizeof(buf),"%.5f",fn.error);
+            glm::vec4 c = residualColor(fn.error, residualStats_.scale, 1.f,
+                                         fn.errorFresh, fn.errorValid);
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(c.r,c.g,c.b,c.a));
+            float t = fn.errorValid
+                ? (float)std::clamp(fn.error / (residualStats_.scale + 1e-9), 0.0, 1.0)
+                : 0.f;
+            char buf[32];
+            snprintf(buf, sizeof(buf), fn.errorValid ? "%.5f" : "invalid", fn.error);
             ImGui::ProgressBar(t, {-1,0}, buf);
             ImGui::PopStyleColor();
+
+            ImGui::TableSetColumnIndex(3);
+            ImGui::TextUnformatted(factorErrorSourceLabel(fn.errorSource));
+            ImGui::TableSetColumnIndex(4);
+            ImGui::Text("%zu", fn.keys.size());
         }
         ImGui::EndTable();
     }

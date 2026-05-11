@@ -1,5 +1,6 @@
 #include "GVizServer.h"
 #include "../gui/panels/LogPanel.h"
+#include "../graph/ResidualColorScale.h"
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -8,6 +9,7 @@
 #include <cstring>
 #include <iomanip>
 #include <sstream>
+#include <cmath>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -343,6 +345,41 @@ static std::vector<Primitive> toPrimitives(const std::vector<gviz_ipc::GVizPrimE
     return out;
 }
 
+static const char* shortFactorLabel(gtsam_viz::FactorType type) {
+    switch (type) {
+    case gtsam_viz::FactorType::Prior:      return "Prior";
+    case gtsam_viz::FactorType::Between:    return "Between";
+    case gtsam_viz::FactorType::Projection: return "Proj";
+    default:                     return "Custom";
+    }
+}
+
+static std::vector<FactorNode> toFactorNodes(const std::vector<gviz_ipc::GVizEdgeEntry>& edges,
+                                             const FactorGraphState& state,
+                                             size_t firstIndex) {
+    std::vector<FactorNode> out;
+    out.reserve(edges.size());
+    size_t idx = firstIndex;
+    for (auto& ee : edges) {
+        FactorNode fn;
+        fn.index  = idx++;
+        fn.type   = toFactorType(static_cast<gviz_ipc::FactorType>(ee.factor_type));
+        fn.error  = ee.error;
+        fn.errorValid = isResidualValid(fn.error);
+        fn.errorFresh = fn.errorValid;
+        fn.errorSource = fn.errorValid ? FactorErrorSource::Ipc : FactorErrorSource::None;
+        fn.keys   = { ee.key_from, ee.key_to };
+        fn.label  = shortFactorLabel(fn.type);
+        glm::vec2 sum{0, 0}; int cnt = 0;
+        for (auto k : fn.keys)
+            for (auto& vn : state.variables())
+                if (vn.key == k) { sum += vn.pos; ++cnt; }
+        fn.pos = cnt > 0 ? sum / float(cnt) : glm::vec2{0, 0};
+        out.push_back(std::move(fn));
+    }
+    return out;
+}
+
 void GVizServer::applyFrame(const GVizFrame& frame, FactorGraphState& state) {
 
     // ── Standalone cloud/primitive messages ───────────────────────────────────
@@ -392,6 +429,11 @@ void GVizServer::applyFrame(const GVizFrame& frame, FactorGraphState& state) {
     }
 
     if (frame.type == MsgType::ValuesOnly) {
+        if (frame.edges.empty()) {
+            state.markFactorErrorsStale();
+        } else {
+            state.refreshVisualFactorErrors(toFactorNodes(frame.edges, state, 0));
+        }
         state.notifyChangedPublic();
         return;
     }
@@ -399,21 +441,7 @@ void GVizServer::applyFrame(const GVizFrame& frame, FactorGraphState& state) {
     if (replace) state.clearFactorsVisual();
 
     size_t idx = replace ? 0 : state.factors().size();
-    for (auto& ee : frame.edges) {
-        FactorNode fn;
-        fn.index  = idx++;
-        fn.type   = toFactorType(static_cast<gviz_ipc::FactorType>(ee.factor_type));
-        fn.error  = ee.error;
-        fn.keys   = { ee.key_from, ee.key_to };
-        fn.label  = (fn.type == FactorType::Prior)      ? "Prior"
-                  : (fn.type == FactorType::Between)     ? "Between"
-                  : (fn.type == FactorType::Projection)  ? "Proj"
-                                                         : "Custom";
-        glm::vec2 sum{0, 0}; int cnt = 0;
-        for (auto k : fn.keys)
-            for (auto& vn : state.variables())
-                if (vn.key == k) { sum += vn.pos; ++cnt; }
-        fn.pos = cnt > 0 ? sum / float(cnt) : glm::vec2{0, 0};
+    for (auto& fn : toFactorNodes(frame.edges, state, idx)) {
         state.appendFactorVisual(std::move(fn));
     }
 

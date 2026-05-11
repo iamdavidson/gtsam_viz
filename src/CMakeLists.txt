@@ -5,6 +5,8 @@ set(LIB_SOURCES
     gui/panels/OptimizerPanel.cpp
     gui/panels/LogPanel.cpp
     gui/panels/Viewport3DPanel.cpp
+    gui/panels/GraphViewPanel.cpp
+    gui/panels/InspectorPanel.cpp
     graph/FactorGraphState.cpp
     graph/GraphLayout.cpp
     renderer/Renderer3D.cpp
@@ -30,6 +32,12 @@ target_compile_options(gtsam_viz_lib PRIVATE
 if(GTSAMVIZ_BUILD_STANDALONE)
     add_executable(gtsam_viz main.cpp)
     target_link_libraries(gtsam_viz PRIVATE gtsam_viz_lib)
+endif()
+
+if(GTSAMVIZ_BUILD_TESTS)
+    add_executable(gtsam_viz_residual_smoke tests/ResidualSmokeTest.cpp)
+    target_link_libraries(gtsam_viz_residual_smoke PRIVATE gtsam_viz_lib)
+    add_test(NAME residual_smoke COMMAND gtsam_viz_residual_smoke)
 endif()
 
 install(TARGETS gtsam_viz_lib ARCHIVE DESTINATION lib)

@@ -6,9 +6,6 @@
 
 namespace gtsam_viz {
 
-static const float NODE_R      = 22.f;
-static const float FACTOR_HALF = 12.f;
-
 GraphViewPanel::GraphViewPanel(FactorGraphState& state)
     : state_(state), layout_({}) {}
 
@@ -23,10 +20,7 @@ void GraphViewPanel::draw() {
         layout_.step(state_, 3);
     }
 
-    // Recompute max error for colour scale
-    double me = 1e-6;
-    for (auto& f : state_.factors()) me = std::max(me, f.error);
-    maxFactorError_ = me;
+    residualStats_ = computeResidualStats(state_.factors());
 
     drawCanvas();
 
@@ -130,9 +124,11 @@ void GraphViewPanel::drawCanvas() {
     };
 
     for (auto& fn : factors) {
+        bool selected = selectedFactor.has_value() && *selectedFactor == fn.index;
         ImU32 ecol = showErrorColors_
-            ? errorColor(fn.error, maxFactorError_)
+            ? errorColor(fn)
             : IM_COL32(120,125,135,200);
+        float edgeThickness = selected ? 3.0f : 1.5f;
 
         for (auto k : fn.keys) {
             const VariableNode* vn = findVar(k);
@@ -142,7 +138,7 @@ void GraphViewPanel::drawCanvas() {
                 ? worldToScreen(fn.pos, cpos)
                 : worldToScreen(glm::vec2{fn.pos.x, fn.pos.y}, cpos);
             if (showFactorNodes_) {
-                drawEdge(dl, va, fb, ecol, 1.5f);
+                drawEdge(dl, va, fb, ecol, edgeThickness);
             } else {
                 // Draw edges between variables that share this factor
             }
@@ -155,7 +151,7 @@ void GraphViewPanel::drawCanvas() {
                 auto* vb = findVar(fn.keys[i+1]);
                 if (va && vb)
                     drawEdge(dl, worldToScreen(va->pos, cpos),
-                                 worldToScreen(vb->pos, cpos), ecol, 1.5f);
+                                 worldToScreen(vb->pos, cpos), ecol, edgeThickness);
             }
         }
     }
@@ -260,7 +256,7 @@ void GraphViewPanel::drawFactor(ImDrawList* dl, const FactorNode& fn,
     }
 
     ImU32 fill = showErrorColors_
-        ? errorColor(fn.error, maxFactorError_)
+        ? errorColor(fn)
         : IM_COL32(90,95,115,230);
 
     dl->AddRectFilled({p.x-half,p.y-half},{p.x+half,p.y+half}, fill);
@@ -409,17 +405,9 @@ glm::vec2 GraphViewPanel::screenToWorld(ImVec2 s, ImVec2 origin) const {
              (s.y - origin.y - pan_.y) / zoom_ };
 }
 
-ImU32 GraphViewPanel::errorColor(double err, double maxErr) const {
-    float t = (float)glm::clamp(err / (maxErr + 1e-9), 0.0, 1.0);
-    // green → yellow → red
-    uint8_t r = (uint8_t)(t < 0.5f
-        ? glm::mix(30.f, 255.f, t*2.f)
-        : 255.f);
-    uint8_t g = (uint8_t)(t < 0.5f
-        ? glm::mix(200.f, 200.f, t*2.f)
-        : glm::mix(200.f, 50.f, (t-0.5f)*2.f));
-    uint8_t b = (uint8_t)(glm::mix(80.f, 30.f, t));
-    return IM_COL32(r, g, b, 230);
+ImU32 GraphViewPanel::errorColor(const FactorNode& fn) const {
+    return static_cast<ImU32>(residualColorU32(fn.error, residualStats_.scale, 1.f,
+                                               fn.errorFresh, fn.errorValid));
 }
 
 ImU32 GraphViewPanel::typeColor(VariableType t) const {

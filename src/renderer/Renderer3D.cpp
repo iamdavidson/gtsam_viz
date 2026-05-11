@@ -289,6 +289,7 @@ GLuint Renderer3D::render(const FactorGraphState& state) {
 
     auto& vars    = state.variables();
     auto& factors = state.factors();
+    lastResidualStats_ = computeResidualStats(factors);
 
     // O(1) key→var lookup for trajectory drawing
     std::unordered_map<gtsam::Key, const VariableNode*> keyToVar;
@@ -298,6 +299,7 @@ GLuint Renderer3D::render(const FactorGraphState& state) {
     drawGrid(VP);
 
     lineBuffer_.clear();
+    selectedLineBuffer_.clear();
 
     // ── Trajectory edges ──────────────────────────────────────────────────────
     if (showTrajectory) {
@@ -307,11 +309,19 @@ GLuint Renderer3D::render(const FactorGraphState& state) {
                 auto itA = keyToVar.find(fn.keys[i]);
                 auto itB = keyToVar.find(fn.keys[i+1]);
                 if (itA == keyToVar.end() || itB == keyToVar.end()) continue;
+                bool selected = selectedFactor.has_value() && *selectedFactor == fn.index;
                 glm::vec4 col = colorEdgesByError
-                    ? edgeColor(fn.error)
+                    ? edgeColor(fn, lastResidualStats_.scale)
                     : glm::vec4{0.3f, 0.9f, 0.5f, 0.9f};
-                lineBuffer_.push_back({itA->second->position3d, col});
-                lineBuffer_.push_back({itB->second->position3d, col});
+                if (selected) {
+                    glm::vec4 hi = col + (glm::vec4{1.f,1.f,1.f,1.f} - col) * 0.25f;
+                    hi.a = 1.f;
+                    selectedLineBuffer_.push_back({itA->second->position3d, hi});
+                    selectedLineBuffer_.push_back({itB->second->position3d, hi});
+                } else {
+                    lineBuffer_.push_back({itA->second->position3d, col});
+                    lineBuffer_.push_back({itB->second->position3d, col});
+                }
             }
         }
     }
@@ -478,6 +488,26 @@ GLuint Renderer3D::render(const FactorGraphState& state) {
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glLineWidth(2.f);
         glDrawArrays(GL_LINES, 0, (GLsizei)lineBuffer_.size());
+        glDisable(GL_BLEND);
+        glBindVertexArray(0);
+    }
+
+    if (!selectedLineBuffer_.empty()) {
+        glUseProgram(lineProg_);
+        setMat4(lineLoc_.vp, VP);
+        glBindVertexArray(lineVao_);
+        glBindBuffer(GL_ARRAY_BUFFER, lineVbo_);
+        glBufferData(GL_ARRAY_BUFFER,
+                     selectedLineBuffer_.size()*sizeof(LineVertex),
+                     selectedLineBuffer_.data(), GL_DYNAMIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
+                              sizeof(LineVertex), (void*)offsetof(LineVertex, pos));
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE,
+                              sizeof(LineVertex), (void*)offsetof(LineVertex, color));
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glLineWidth(4.f);
+        glDrawArrays(GL_LINES, 0, (GLsizei)selectedLineBuffer_.size());
         glDisable(GL_BLEND);
         glBindVertexArray(0);
     }
@@ -658,18 +688,9 @@ void Renderer3D::drawPoseAxes(const glm::mat4& transform, float scale, const glm
     glBindVertexArray(0);
 }
 
-glm::vec4 Renderer3D::edgeColor(double error) const {
-    float e = std::max(0.f, static_cast<float>(error));
-    float t = 1.f - std::exp(-e * std::max(0.001f, edgeErrorScale));
-    t = glm::clamp(t, 0.f, 1.f);
-
-    constexpr glm::vec4 green{0.18f, 0.95f, 0.35f, 0.95f};
-    constexpr glm::vec4 yellow{1.00f, 0.88f, 0.15f, 0.95f};
-    constexpr glm::vec4 red{1.00f, 0.18f, 0.12f, 0.95f};
-
-    if (t < 0.5f)
-        return glm::mix(green, yellow, t * 2.f);
-    return glm::mix(yellow, red, (t - 0.5f) * 2.f);
+glm::vec4 Renderer3D::edgeColor(const FactorNode& factor, double scale) const {
+    return residualColor(factor.error, scale, edgeErrorScale,
+                         factor.errorFresh, factor.errorValid);
 }
 
 void Renderer3D::drawSphere(glm::vec3 pos, float rx, float ry, float rz,

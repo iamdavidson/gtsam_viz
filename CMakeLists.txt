@@ -15,6 +15,11 @@ endif()
 option(GTSAMVIZ_BUILD_STANDALONE "Build the gtsam_viz executable"  ON)
 option(GTSAMVIZ_ENABLE_ASAN      "Enable AddressSanitizer"         OFF)
 option(GTSAMVIZ_ENABLE_TSAN      "Enable ThreadSanitizer"          OFF)
+option(GTSAMVIZ_BUILD_TESTS      "Build smoke tests"               ON)
+
+if(GTSAMVIZ_BUILD_TESTS)
+  enable_testing()
+endif()
 
 # ── Sanitizers ────────────────────────────────────────────────────────────────
 if(GTSAMVIZ_ENABLE_ASAN)

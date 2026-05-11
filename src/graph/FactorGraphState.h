@@ -46,6 +46,7 @@ struct VariableNode {
 
 // ─── Factor node ──────────────────────────────────────────────────────────────
 enum class FactorType { Prior, Between, Projection, Custom };
+enum class FactorErrorSource { None, Gtsam, Ipc, Stale };
 
 struct FactorNode {
     size_t       index;
@@ -54,6 +55,9 @@ struct FactorNode {
     glm::vec2    pos      = {0, 0};
     bool         selected = false;
     double       error    = 0.0;
+    bool         errorValid = false;
+    bool         errorFresh = false;
+    FactorErrorSource errorSource = FactorErrorSource::None;
     std::vector<gtsam::Key> keys;
     glm::vec2    velocity = {0, 0};
 };
@@ -103,6 +107,7 @@ public:
     void setGraph(gtsam::NonlinearFactorGraph graph, gtsam::Values initialValues);
     void addFactor(gtsam::NonlinearFactor::shared_ptr factor);
     void addValue(gtsam::Key key, const gtsam::Value& value);
+    void updateValues(const gtsam::Values& values, bool updateInitialValues = false);
 
     // ── Optimization ──────────────────────────────────────────────────────────
     void  setOptimizerType(OptimizerType t) { optimizerType_ = t; }
@@ -153,6 +158,8 @@ public:
     void clearFactorsVisual();
     void upsertVariable(VariableNode vn);
     void appendFactorVisual(FactorNode fn);
+    void markFactorErrorsStale();
+    void refreshVisualFactorErrors(const std::vector<FactorNode>& factors);
     void notifyChangedPublic() { notifyChanged(); }
 
     // ── ISAM2 / LM params ────────────────────────────────────────────────────
@@ -162,6 +169,7 @@ public:
 private:
     void notifyChanged();
     void updateVariableValues();
+    void assignFactorError(FactorNode& fn, double error, FactorErrorSource source);
     VariableType detectType(gtsam::Key key) const;
     FactorType   detectFactorType(const gtsam::NonlinearFactor::shared_ptr& f) const;
     void         extractPose(VariableNode& vn) const;

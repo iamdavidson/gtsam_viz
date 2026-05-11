@@ -11,6 +11,8 @@
 #include <typeinfo>
 #include <sstream>
 #include <stdexcept>
+#include <cmath>
+#include <limits>
 
 namespace gtsam_viz {
 
@@ -104,15 +106,34 @@ void FactorGraphState::addFactor(gtsam::NonlinearFactor::shared_ptr factor) {
 }
 
 void FactorGraphState::addValue(gtsam::Key key, const gtsam::Value& value) {
-    if (values_.exists(key)) {
-        values_.update(key, value);
-        initialValues_.update(key, value);
-    } else {
-        values_.insert(key, value);
-        initialValues_.insert(key, value);
+    gtsam::Values one;
+    one.insert(key, value);
+    updateValues(one, true);
+}
+
+void FactorGraphState::updateValues(const gtsam::Values& values,
+                                    bool updateInitialValues) {
+    bool addedKey = false;
+    for (const auto& kv : values) {
+        if (values_.exists(kv.key)) {
+            values_.update(kv.key, kv.value);
+        } else {
+            values_.insert(kv.key, kv.value);
+            addedKey = true;
+        }
+
+        if (updateInitialValues) {
+            if (initialValues_.exists(kv.key))
+                initialValues_.update(kv.key, kv.value);
+            else
+                initialValues_.insert(kv.key, kv.value);
+        } else if (!initialValues_.exists(kv.key)) {
+            initialValues_.insert(kv.key, kv.value);
+        }
     }
     marginalsValid_ = false;
-    rebuildMetadata();
+    if (addedKey) rebuildMetadata();
+    else updateVariableValues();
     notifyChanged();
 }
 
@@ -207,8 +228,13 @@ double FactorGraphState::totalError() const {
 }
 
 double FactorGraphState::factorError(size_t idx) const {
-    if (idx >= graph_.size() || values_.empty()) return 0.0;
-    return graph_[idx]->error(values_);
+    if (idx >= graph_.size() || values_.empty() || !graph_[idx])
+        return std::numeric_limits<double>::quiet_NaN();
+    try {
+        return graph_[idx]->error(values_);
+    } catch (...) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
 }
 
 bool FactorGraphState::computeMarginals() {
@@ -268,10 +294,11 @@ void FactorGraphState::rebuildMetadata() {
         auto kv = f->keys();
         fn.keys.assign(kv.begin(), kv.end());
         fn.type  = detectFactorType(f);
-        fn.error = factorError(i);
+        assignFactorError(fn, factorError(i), FactorErrorSource::Gtsam);
 
         // Short type name
-        std::string tname = typeid(*f).name();
+        const auto* rawFactor = f.get();
+        std::string tname = typeid(*rawFactor).name();
         // Demangle partially
         auto pos = tname.rfind(':');
         fn.label = (pos != std::string::npos) ? tname.substr(pos+1, 16) : tname.substr(0, 16);
@@ -294,8 +321,16 @@ void FactorGraphState::updateVariableValues() {
     }
     // Recompute factor errors
     for (auto& fn : factors_) {
-        fn.error = factorError(fn.index);
+        assignFactorError(fn, factorError(fn.index), FactorErrorSource::Gtsam);
     }
+}
+
+void FactorGraphState::assignFactorError(FactorNode& fn, double error,
+                                         FactorErrorSource source) {
+    fn.errorSource = source;
+    fn.errorFresh  = source != FactorErrorSource::Stale && source != FactorErrorSource::None;
+    fn.errorValid  = std::isfinite(error) && error >= 0.0;
+    fn.error       = fn.errorValid ? error : 0.0;
 }
 
 VariableType FactorGraphState::detectType(gtsam::Key key) const {
@@ -317,7 +352,8 @@ VariableType FactorGraphState::detectType(gtsam::Key key) const {
 
 FactorType FactorGraphState::detectFactorType(
         const gtsam::NonlinearFactor::shared_ptr& f) const {
-    std::string tn = typeid(*f).name();
+    const auto* rawFactor = f.get();
+    std::string tn = typeid(*rawFactor).name();
     if (tn.find("Prior")   != std::string::npos) return FactorType::Prior;
     if (tn.find("Between") != std::string::npos) return FactorType::Between;
     if (tn.find("Project") != std::string::npos) return FactorType::Projection;
@@ -400,7 +436,53 @@ void FactorGraphState::upsertVariable(VariableNode vn) {
 }
 
 void FactorGraphState::appendFactorVisual(FactorNode fn) {
+    if (!fn.errorValid)
+        assignFactorError(fn, fn.error, fn.errorSource);
     factors_.push_back(std::move(fn));
+}
+
+void FactorGraphState::markFactorErrorsStale() {
+    for (auto& fn : factors_) {
+        fn.errorFresh = false;
+        fn.errorSource = FactorErrorSource::Stale;
+    }
+}
+
+static bool sameFactorShape(const FactorNode& a, const FactorNode& b) {
+    if (a.keys.size() != b.keys.size()) return false;
+    for (size_t i = 0; i < a.keys.size(); ++i)
+        if (a.keys[i] != b.keys[i]) return false;
+    return true;
+}
+
+void FactorGraphState::refreshVisualFactorErrors(const std::vector<FactorNode>& factors) {
+    bool sameShape = factors.size() == factors_.size();
+    if (sameShape) {
+        for (size_t i = 0; i < factors.size(); ++i) {
+            if (!sameFactorShape(factors_[i], factors[i])) {
+                sameShape = false;
+                break;
+            }
+        }
+    }
+
+    if (sameShape) {
+        for (size_t i = 0; i < factors.size(); ++i)
+            assignFactorError(factors_[i], factors[i].error, factors[i].errorSource);
+        return;
+    }
+
+    std::unordered_map<size_t, glm::vec2> existingFpos;
+    for (auto& f : factors_) existingFpos[f.index] = f.pos;
+
+    factors_.clear();
+    for (auto fn : factors) {
+        if (existingFpos.count(fn.index))
+            fn.pos = existingFpos[fn.index];
+        if (!fn.errorValid)
+            assignFactorError(fn, fn.error, fn.errorSource);
+        factors_.push_back(std::move(fn));
+    }
 }
 
 } // namespace gtsam_viz

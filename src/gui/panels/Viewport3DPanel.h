@@ -42,8 +42,6 @@ private:
     bool panning_      = false;
     bool shiftPanning_ = false;
 
-    int   pendingGridHalf_ = -1;
-    float pendingGridStep_ = -1.f;
 };
 
 } // namespace gtsam_viz

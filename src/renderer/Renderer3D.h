@@ -2,8 +2,10 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <optional>
 #include <vector>
 #include "../graph/FactorGraphState.h"
+#include "../graph/ResidualColorScale.h"
 
 namespace gtsam_viz {
 
@@ -34,6 +36,7 @@ public:
     GLuint render(const FactorGraphState& state);
 
     Camera& camera() { return cam_; }
+    const ResidualStats& residualStats() const { return lastResidualStats_; }
 
     // ── View toggles ──────────────────────────────────────────────────────────
     bool  showAxes          = true;
@@ -43,6 +46,7 @@ public:
     bool  showPrimitives    = true;
     bool  followMode        = false;
     bool  colorEdgesByError = true;
+    std::optional<size_t> selectedFactor;
 
     float axisLength        = 0.5f;
     float nodeSize          = 0.12f;
@@ -84,7 +88,7 @@ private:
     void drawPoseAxes(const glm::mat4& transform, float scale, const glm::mat4& VP);
     void drawSphere(glm::vec3 pos, float rx, float ry, float rz,
                     const glm::mat4& rotation, glm::vec4 color, const glm::mat4& VP);
-    glm::vec4 edgeColor(double error) const;
+    glm::vec4 edgeColor(const FactorNode& factor, double scale) const;
 
     // Solid primitive geometry generation (appends triangles to solidBuffer_)
     void appendCone(glm::vec3 apex, glm::vec3 base_center, float radius);
@@ -111,6 +115,7 @@ private:
     // ── Dynamic line buffer ───────────────────────────────────────────────────
     struct LineVertex { glm::vec3 pos; glm::vec4 color; };
     std::vector<LineVertex> lineBuffer_;
+    std::vector<LineVertex> selectedLineBuffer_;
     GLuint lineVao_ = 0, lineVbo_ = 0;
 
     // ── Dynamic solid buffer (pos+norm, rebuilt per frame) ────────────────────
@@ -125,6 +130,7 @@ private:
     bool   initialized_  = false;
     int    lastGridHalf_ = -1;
     float  lastGridStep_ = -1.f;
+    ResidualStats lastResidualStats_;
 
     // ── Uniform helpers ───────────────────────────────────────────────────────
     void setMat4(GLint loc, const glm::mat4& m);

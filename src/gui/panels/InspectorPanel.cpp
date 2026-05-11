@@ -10,6 +10,7 @@
 #include <sstream>
 #include <iomanip>
 #include <imgui.h>
+#include "../../graph/ResidualColorScale.h"
 
 namespace gtsam_viz {
 
@@ -180,14 +181,16 @@ void InspectorPanel::drawMatrix(const gtsam::Matrix& M, const char* label) {
 }
 
 void InspectorPanel::drawFactorInspector(size_t idx) {
-    if (idx >= state_.graph().size()) {
+    if (idx >= state_.factors().size()) {
         ImGui::TextDisabled("Factor index out of range");
         return;
     }
     auto& fn = state_.factors()[idx];
 
     ImGui::Text("Type:  %s", fn.label.c_str());
-    ImGui::Text("Error: %s", fmtDouble(fn.error).c_str());
+    ImGui::Text("Error: %s", fn.errorValid ? fmtDouble(fn.error).c_str() : "invalid");
+    ImGui::Text("Source: %s%s", factorErrorSourceLabel(fn.errorSource),
+                fn.errorFresh ? "" : " (stale)");
     ImGui::Spacing();
     ImGui::SeparatorText("Connected Variables");
     for (auto k : fn.keys) {
@@ -200,7 +203,7 @@ void InspectorPanel::drawFactorInspector(size_t idx) {
     }
 
     // Linearized error vector (whitened residual)
-    if (!state_.values().empty()) {
+    if (!state_.values().empty() && idx < state_.graph().size()) {
         try {
             auto& graph = state_.graph();
             if (idx < graph.size() && graph[idx]) {

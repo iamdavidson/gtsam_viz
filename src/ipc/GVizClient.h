@@ -11,7 +11,7 @@
  *   GVizClient viz;
  *   viz.connect();
  *   viz.publish(graph, values, "keyframe 42");
- *   viz.publishValuesOnly(optimized_values);
+ *   viz.publishValuesWithErrors(graph, optimized_values);
  *   viz.clear();
  *   viz.disconnect();
  *
@@ -251,10 +251,20 @@ public:
     }
 
     /// Position-only update (topology unchanged).
+    /// Fastest path, but residual colors become stale until errors are sent again.
     bool publishValuesOnly(const gtsam::Values& values,
                            const std::string& label = "") {
         return transmit(gviz_ipc::MsgType::ValuesOnly,
                         buildVars(values, nullptr), {}, label, {}, {});
+    }
+
+    /// Position update plus freshly computed factor errors (topology unchanged).
+    bool publishValuesWithErrors(const gtsam::NonlinearFactorGraph& graph,
+                                 const gtsam::Values& values,
+                                 const std::string& label = "") {
+        return transmit(gviz_ipc::MsgType::ValuesOnly,
+                        buildVars(values, nullptr),
+                        buildEdges(graph, values), label, {}, {});
     }
 
     /// Append new vars/edges (iSAM2 style).

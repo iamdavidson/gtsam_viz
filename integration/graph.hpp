@@ -171,9 +171,10 @@ private:
     void viz_publish_values(const std::string& label = "") {
 #if GVIZ_AVAILABLE
         if (!viz_cfg_.enabled) return;
-        gtsam::Values v_snap;
-        { std::lock_guard<std::mutex> lk(mtx); v_snap = init_guess; }
-        client_.publishValuesOnly(v_snap,
+        gtsam::NonlinearFactorGraph g_snap;
+        gtsam::Values               v_snap;
+        { std::lock_guard<std::mutex> lk(mtx); g_snap = graph; v_snap = init_guess; }
+        client_.publishValuesWithErrors(g_snap, v_snap,
                         viz_cfg_.backendName + " | " + label);
 #else
         (void)label;

@@ -10,7 +10,7 @@
  *   GVizClient viz;
  *   viz.connect();                                         // connect to running GUI
  *   viz.publish(graph, values, "keyframe 42");             // full replace
- *   viz.publishValuesOnly(optimized_values, "post-opt");   // positions only
+ *   viz.publishValuesWithErrors(graph, optimized_values, "post-opt");
  *   viz.append(new_factors, new_values, "step N");         // incremental
  *   viz.clear();
  *   viz.disconnect();   // or just let it destruct
@@ -346,10 +346,20 @@ public:
 
     /// Position-only update — topology (edges) unchanged.
     /// Use after every optimization iteration; very fast.
+    /// Residual colors become stale until errors are sent again.
     bool publishValuesOnly(const gtsam::Values& values,
                            const std::string&   label = "") {
         return transmit(gviz_ipc::MsgType::ValuesOnly,
                         buildVars(values, nullptr), {}, label, {}, {});
+    }
+
+    /// Position update plus freshly computed factor errors; topology unchanged.
+    bool publishValuesWithErrors(const gtsam::NonlinearFactorGraph& graph,
+                                 const gtsam::Values&               values,
+                                 const std::string&                 label = "") {
+        return transmit(gviz_ipc::MsgType::ValuesOnly,
+                        buildVars(values, nullptr),
+                        buildEdges(graph, values), label, {}, {});
     }
 
     /// Append new variables and factors (iSAM2-style incremental update).

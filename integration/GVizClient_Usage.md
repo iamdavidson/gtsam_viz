@@ -150,7 +150,7 @@ int main() {
 viz.connect();                         // verbindet mit /tmp/gtsam_viz.sock
 viz.connect("/custom/path.sock");      // eigener Socket-Pfad
 viz.publish(graph, values, "label");   // kompletter Graph-Snapshot
-viz.publishValuesOnly(values, "opt");  // nur Posen/Values aktualisieren
+viz.publishValuesWithErrors(graph, values, "opt"); // Posen + frische Residual-Farben
 viz.append(new_graph, new_values);     // inkrementelles Update
 viz.appendEdge(key_a, key_b);          // einzelne visuelle Kante
 viz.clear();                           // GUI-Zustand loeschen
@@ -160,8 +160,9 @@ viz.disconnect();                      // Socket schliessen
 `publish()` ersetzt den aktuellen Graphen in der GUI. Nutze das fuer Keyframes,
 Loop-Closure-Events oder regelmaessige Snapshots.
 
-`publishValuesOnly()` ist guenstiger und aktualisiert nur die Positionen der
-bekannten Variablen. Nutze das nach Optimierungsschritten.
+`publishValuesWithErrors()` aktualisiert Positionen und Factor-Errors, damit
+Residual-Farben nach Optimierungsschritten aktuell bleiben. `publishValuesOnly()`
+ist guenstiger, markiert Residual-Farben aber als potenziell veraltet.
 
 ## 8. Kovarianzen anzeigen
 
@@ -228,7 +229,7 @@ GVizClient viz;
 viz.connect(); // false ist okay, wenn Visualisierung optional ist
 
 // Im Laufzeit-Code trotzdem publishen:
-viz.publishValuesOnly(values, "tick");
+viz.publishValuesWithErrors(graph, values, "tick");
 ```
 
 ## 12. Typischer Workflow
@@ -236,6 +237,6 @@ viz.publishValuesOnly(values, "tick");
 1. GTSAMViz starten.
 2. Externes Projekt starten.
 3. Beim ersten Keyframe `publish(graph, values, label)` senden.
-4. Nach Optimierungen `publishValuesOnly(values, label)` senden.
+4. Nach Optimierungen `publishValuesWithErrors(graph, values, label)` senden.
 5. Bei neuer Topologie, etwa Loop Closure, wieder `publish(graph, values, label)` senden.
 6. Optional Punktwolken, Kovarianzen oder Primitive dazusenden.

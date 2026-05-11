@@ -79,6 +79,34 @@ void Viewport3DPanel::draw() {
     ImVec2 hintSz = ImGui::CalcTextSize(hint);
     dl->AddText({imgPos.x + 8 * uiScale, imgPos.y + avail.y - hintSz.y - 6 * uiScale},
                 IM_COL32(160,155,155,150), hint);
+
+    if (renderer_.colorEdgesByError && renderer_.showTrajectory) {
+        const ResidualStats& stats = renderer_.residualStats();
+        float x0 = imgPos.x + avail.x - 230 * uiScale;
+        float y0 = imgPos.y + 10 * uiScale;
+        float w0 = 210 * uiScale;
+        float h0 = 48 * uiScale;
+        dl->AddRectFilled({x0, y0}, {x0 + w0, y0 + h0}, IM_COL32(0,0,0,125), 4.f);
+        const int steps = 32;
+        float gx = x0 + 10 * uiScale, gy = y0 + 10 * uiScale;
+        float gw = 135 * uiScale, gh = 8 * uiScale;
+        for (int i = 0; i < steps; ++i) {
+            double err = stats.scale * double(i) / double(steps - 1);
+            ImU32 col = (ImU32)residualColorU32(err, stats.scale, renderer_.edgeErrorScale);
+            float xa = gx + gw * float(i) / steps;
+            float xb = gx + gw * float(i + 1) / steps + 1.f;
+            dl->AddRectFilled({xa, gy}, {xb, gy + gh}, col);
+        }
+        char sText[96];
+        snprintf(sText, sizeof(sText), "scale %.4g  p95 %.4g", stats.scale, stats.p95);
+        dl->AddText({gx, gy + 14 * uiScale}, IM_COL32(220,218,218,210), sText);
+        if (stats.staleCount > 0) {
+            char stale[64];
+            snprintf(stale, sizeof(stale), "%d stale", stats.staleCount);
+            dl->AddText({x0 + 150 * uiScale, gy - 3 * uiScale},
+                        IM_COL32(255,190,80,230), stale);
+        }
+    }
 }
 
 void Viewport3DPanel::drawToolbar() {

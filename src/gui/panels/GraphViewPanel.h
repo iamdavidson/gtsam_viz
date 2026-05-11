@@ -2,6 +2,7 @@
 #include <imgui.h>
 #include "../../graph/FactorGraphState.h"
 #include "../../graph/GraphLayout.h"
+#include "../../graph/ResidualColorScale.h"
 #include <optional>
 
 namespace gtsam_viz {
@@ -30,7 +31,7 @@ private:
     glm::vec2 screenToWorld(ImVec2 screen, ImVec2 origin) const;
 
     // Error → color mapping (green → yellow → red)
-    ImU32 errorColor(double err, double maxErr) const;
+    ImU32 errorColor(const FactorNode& fn) const;
     ImU32 typeColor(VariableType t) const;
 
     FactorGraphState& state_;
@@ -55,8 +56,7 @@ private:
     float nodeRadius_   = 22.f;
     float factorSize_   = 14.f;
 
-    // For error normalization
-    mutable double maxFactorError_ = 1.0;
+    ResidualStats residualStats_;
 };
 
 } // namespace gtsam_viz

@@ -13,12 +13,15 @@ GuiManager::GuiManager() : state_() {}
 
 bool GuiManager::init(Renderer3D& renderer, GVizServer& server, float uiScale) {
     uiScale_ = std::clamp(uiScale, 0.75f, 2.5f);
+    renderer_ = &renderer;
     server_ = &server;
     applyDarkTheme(uiScale_);
 
-    optimizerPanel_  = std::make_unique<OptimizerPanel>(state_);
+    optimizerPanel_  = std::make_unique<OptimizerPanel>(state_, &selectedFactor_);
     logPanel_        = std::make_unique<LogPanel>();
     viewport3DPanel_ = std::make_unique<Viewport3DPanel>(state_, renderer);
+    graphViewPanel_  = std::make_unique<GraphViewPanel>(state_);
+    inspectorPanel_  = std::make_unique<InspectorPanel>(state_);
     bridgePanel_     = std::make_unique<BridgePanel>(GraphBridge::instance());
     bridgePanel_->linkState(&state_);
 
@@ -45,6 +48,8 @@ void GuiManager::draw() {
     if (server_ && !bridgePanel_->isPaused())
         server_->poll(state_);
 
+    if (renderer_) renderer_->selectedFactor = selectedFactor_;
+
     // ── 3D Viewport (main / central window) ───────────────────────────────────
     ImGui::SetNextWindowSize({900 * uiScale_, 700 * uiScale_}, ImGuiCond_FirstUseEver);
     if (ImGui::Begin("3D Viewport##panel", nullptr,
@@ -54,9 +59,20 @@ void GuiManager::draw() {
     }
     ImGui::End();
 
-    // ── Stats panel (right) ───────────────────────────────────────────────────
+    // ── 2D graph (tabbed with viewport by default) ────────────────────────────
+    ImGui::SetNextWindowSize({900 * uiScale_, 700 * uiScale_}, ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Graph View##panel")) {
+        graphViewPanel_->selectedVariable = selectedVariable_;
+        graphViewPanel_->selectedFactor   = selectedFactor_;
+        graphViewPanel_->draw();
+        selectedVariable_ = graphViewPanel_->selectedVariable;
+        selectedFactor_   = graphViewPanel_->selectedFactor;
+    }
+    ImGui::End();
+
+    // ── Residual diagnostics panel (right) ───────────────────────────────────
     ImGui::SetNextWindowSize({360 * uiScale_, 600 * uiScale_}, ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Stats##panel")) {
+    if (ImGui::Begin("Residuals##panel")) {
         optimizerPanel_->draw();
     }
     ImGui::End();
@@ -65,6 +81,13 @@ void GuiManager::draw() {
     ImGui::SetNextWindowSize({360 * uiScale_, 300 * uiScale_}, ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Live Bridge##panel")) {
         bridgePanel_->draw();
+    }
+    ImGui::End();
+
+    // ── Inspector panel ───────────────────────────────────────────────────────
+    ImGui::SetNextWindowSize({360 * uiScale_, 300 * uiScale_}, ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Inspector##panel")) {
+        inspectorPanel_->draw(selectedVariable_, selectedFactor_);
     }
     ImGui::End();
 
@@ -178,22 +201,17 @@ void GuiManager::drawDockspace() {
                                       0.24f, 0.34f);
         ImGui::DockBuilderSplitNode(dockspaceId_, ImGuiDir_Right, rightRatio, &right, &center);
 
-        // Center: 3D viewport (top, 85%) + Log (bottom, 15%)
+        // Center: 3D/2D graph tabs (top, 88%) + compact log (bottom)
         ImGuiID viewport, logStrip;
-        ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.15f, &logStrip, &viewport);
-
-        // Right sidebar: Bridge (top ~25%) + Stats (middle ~45%) + Settings (bottom ~30%)
-        ImGuiID bridgeNode, statsSettings;
-        ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.75f, &statsSettings, &bridgeNode);
-
-        ImGuiID statsNode, settingsNode;
-        ImGui::DockBuilderSplitNode(statsSettings, ImGuiDir_Down, 0.40f, &settingsNode, &statsNode);
+        ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.12f, &logStrip, &viewport);
 
         ImGui::DockBuilderDockWindow("3D Viewport##panel",  viewport);
+        ImGui::DockBuilderDockWindow("Graph View##panel",   viewport);
         ImGui::DockBuilderDockWindow("Log##panel",          logStrip);
-        ImGui::DockBuilderDockWindow("Live Bridge##panel",  bridgeNode);
-        ImGui::DockBuilderDockWindow("Stats##panel",        statsNode);
-        ImGui::DockBuilderDockWindow("Settings##panel",     settingsNode);
+        ImGui::DockBuilderDockWindow("Residuals##panel",    right);
+        ImGui::DockBuilderDockWindow("Live Bridge##panel",  right);
+        ImGui::DockBuilderDockWindow("Inspector##panel",    right);
+        ImGui::DockBuilderDockWindow("Settings##panel",     right);
         ImGui::DockBuilderFinish(dockspaceId_);
     }
 
