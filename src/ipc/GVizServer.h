@@ -68,7 +68,6 @@ private:
     mutable std::mutex        mtx_;
     std::optional<GVizFrame>  pending_;
     bool                      hasNew_  = false;
-    uint32_t                  lastSeq_ = 0;
 };
 
 } // namespace gtsam_viz

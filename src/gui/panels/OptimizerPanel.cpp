@@ -12,8 +12,29 @@ static const char* factorTypeName(FactorType t) {
     case FactorType::Prior:      return "Prior";
     case FactorType::Between:    return "Between";
     case FactorType::Projection: return "Projection";
+    case FactorType::BearingRange: return "BearingRange";
     default:                     return "Custom";
     }
+}
+
+static int factorTypeFilterValue(int comboIndex) {
+    switch (comboIndex) {
+    case 1: return (int)FactorType::Prior;
+    case 2: return (int)FactorType::Between;
+    case 3: return (int)FactorType::Projection;
+    case 4: return (int)FactorType::BearingRange;
+    case 5: return (int)FactorType::Custom;
+    default: return -1;
+    }
+}
+
+static int factorTypeFilterIndex(int filterValue) {
+    if (filterValue == (int)FactorType::Prior) return 1;
+    if (filterValue == (int)FactorType::Between) return 2;
+    if (filterValue == (int)FactorType::Projection) return 3;
+    if (filterValue == (int)FactorType::BearingRange) return 4;
+    if (filterValue == (int)FactorType::Custom) return 5;
+    return 0;
 }
 
 OptimizerPanel::OptimizerPanel(FactorGraphState& state,
@@ -72,10 +93,10 @@ void OptimizerPanel::drawFactorErrorTable() {
     ImGui::Checkbox("Only high", &showHighOnly_);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(130);
-    const char* filterItems[] = {"All", "Prior", "Between", "Projection", "Custom"};
-    int filterUi = typeFilter_ + 1;
+    const char* filterItems[] = {"All", "Prior", "Between", "Projection", "BearingRange", "Custom"};
+    int filterUi = factorTypeFilterIndex(typeFilter_);
     if (ImGui::Combo("Type", &filterUi, filterItems, IM_ARRAYSIZE(filterItems)))
-        typeFilter_ = filterUi - 1;
+        typeFilter_ = factorTypeFilterValue(filterUi);
 
     ImVec2 sz = {-1, std::min(280.f, float(factors.size())*24.f + 42.f)};
     if (ImGui::BeginTable("##ferr", 5,
@@ -129,8 +150,7 @@ void OptimizerPanel::drawFactorErrorTable() {
             ImGui::TableSetColumnIndex(1);
             ImGui::TextUnformatted(factorTypeName(fn.type));
             ImGui::TableSetColumnIndex(2);
-            glm::vec4 c = residualColor(fn.error, residualStats_.scale, 1.f,
-                                         fn.errorFresh, fn.errorValid);
+            glm::vec4 c = factorResidualColor(fn, residualStats_.scale);
             ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(c.r,c.g,c.b,c.a));
             float t = fn.errorValid
                 ? (float)std::clamp(fn.error / (residualStats_.scale + 1e-9), 0.0, 1.0)

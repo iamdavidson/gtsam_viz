@@ -312,7 +312,7 @@ GLuint Renderer3D::render(const FactorGraphState& state) {
                 bool selected = selectedFactor.has_value() && *selectedFactor == fn.index;
                 glm::vec4 col = colorEdgesByError
                     ? edgeColor(fn, lastResidualStats_.scale)
-                    : glm::vec4{0.3f, 0.9f, 0.5f, 0.9f};
+                    : factorTypeAccent(fn.type);
                 if (selected) {
                     glm::vec4 hi = col + (glm::vec4{1.f,1.f,1.f,1.f} - col) * 0.25f;
                     hi.a = 1.f;
@@ -329,12 +329,17 @@ GLuint Renderer3D::render(const FactorGraphState& state) {
     // ── Graph nodes ───────────────────────────────────────────────────────────
     for (auto& vn : vars) {
         bool isPose = vn.type==VariableType::Pose2 || vn.type==VariableType::Pose3;
-        if (showAxes) drawPoseAxes(vn.transform, axisLength, VP);
-        drawSphere(vn.position3d, nodeSize, nodeSize, nodeSize,
-                   glm::mat4(1.f),
-                   isPose ? glm::vec4{0.3f,0.65f,1.f,1.f}
-                          : glm::vec4{0.3f,1.f,0.6f,1.f},
-                   VP);
+        if (showAxes && isPose) drawPoseAxes(vn.transform, axisLength, VP);
+
+        float s = nodeSize;
+        glm::vec4 color = isPose ? glm::vec4{0.3f,0.65f,1.f,1.f}
+                                 : glm::vec4{0.3f,1.f,0.6f,1.f};
+        if (vn.type == VariableType::Point3) {
+            s = nodeSize * 0.82f;
+            color = {1.0f, 0.86f, 0.18f, 1.f};
+        }
+
+        drawSphere(vn.position3d, s, s, s, glm::mat4(1.f), color, VP);
     }
 
     // ── Covariance ellipsoids ─────────────────────────────────────────────────
@@ -689,8 +694,7 @@ void Renderer3D::drawPoseAxes(const glm::mat4& transform, float scale, const glm
 }
 
 glm::vec4 Renderer3D::edgeColor(const FactorNode& factor, double scale) const {
-    return residualColor(factor.error, scale, edgeErrorScale,
-                         factor.errorFresh, factor.errorValid);
+    return factorResidualColor(factor, scale, edgeErrorScale);
 }
 
 void Renderer3D::drawSphere(glm::vec3 pos, float rx, float ry, float rz,

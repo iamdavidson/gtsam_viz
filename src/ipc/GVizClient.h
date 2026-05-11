@@ -201,6 +201,7 @@ public:
     static constexpr FactorTypeAlias Prior      = FactorTypeAlias::Prior;
     static constexpr FactorTypeAlias Between    = FactorTypeAlias::Between;
     static constexpr FactorTypeAlias Projection = FactorTypeAlias::Projection;
+    static constexpr FactorTypeAlias BearingRange = FactorTypeAlias::BearingRange;
     static constexpr FactorTypeAlias Custom     = FactorTypeAlias::Custom;
 
     /// Map from variable key → 3×3 position covariance (XYZ, world space).
@@ -442,6 +443,7 @@ private:
                 std::string tn = typeid(*f).name();
                 if      (tn.find("Prior")   != std::string::npos) e.factor_type = (uint8_t)gviz_ipc::FactorType::Prior;
                 else if (tn.find("Between") != std::string::npos) e.factor_type = (uint8_t)gviz_ipc::FactorType::Between;
+                else if (tn.find("BearingRange") != std::string::npos) e.factor_type = (uint8_t)gviz_ipc::FactorType::BearingRange;
                 else if (tn.find("Project") != std::string::npos) e.factor_type = (uint8_t)gviz_ipc::FactorType::Projection;
                 else                                               e.factor_type = (uint8_t)gviz_ipc::FactorType::Custom;
                 try { if (!values.empty()) e.error = (float)f->error(values); } catch(...) {}

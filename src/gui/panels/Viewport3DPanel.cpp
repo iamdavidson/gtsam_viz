@@ -220,7 +220,7 @@ void Viewport3DPanel::handleCameraInput(ImVec2 imagePos, ImVec2 imageSize) {
 
     // Orbit (LMB, no Shift)
     if (orbiting_ && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-        cam.orbit(io.MouseDelta.x * cfg_.orbitSensitivity,
+        cam.orbit(-io.MouseDelta.x * cfg_.orbitSensitivity,
                  -io.MouseDelta.y * cfg_.orbitSensitivity);
     }
 

@@ -69,9 +69,41 @@ inline glm::vec4 residualColor(double err, double scale, float multiplier = 1.f,
     return yellow + (red - yellow) * ((t - 0.5f) * 2.f);
 }
 
+inline glm::vec4 factorTypeAccent(FactorType type) {
+    switch (type) {
+    case FactorType::BearingRange: return {0.95f, 0.38f, 1.00f, 0.95f};
+    case FactorType::Projection:   return {0.20f, 0.80f, 1.00f, 0.95f};
+    case FactorType::Prior:        return {1.00f, 0.78f, 0.22f, 0.95f};
+    case FactorType::Custom:       return {0.75f, 0.75f, 0.82f, 0.95f};
+    default:                       return {0.30f, 0.90f, 0.50f, 0.95f};
+    }
+}
+
+inline glm::vec4 factorResidualColor(const FactorNode& factor, double scale,
+                                     float multiplier = 1.f) {
+    glm::vec4 c = residualColor(factor.error, scale, multiplier,
+                                factor.errorFresh, factor.errorValid);
+    if (factor.type == FactorType::BearingRange) {
+        glm::vec4 accent = factorTypeAccent(factor.type);
+        c = c * 0.68f + accent * 0.32f;
+        c.a = std::max(c.a, 0.95f);
+    }
+    return c;
+}
+
 inline uint32_t residualColorU32(double err, double scale, float multiplier = 1.f,
                                  bool fresh = true, bool valid = true) {
     glm::vec4 c = residualColor(err, scale, multiplier, fresh, valid);
+    auto toByte = [](float v) {
+        return static_cast<uint32_t>(glm::clamp(v, 0.f, 1.f) * 255.f + 0.5f);
+    };
+    uint32_t r = toByte(c.r), g = toByte(c.g), b = toByte(c.b), a = toByte(c.a);
+    return (a << 24) | (b << 16) | (g << 8) | r;
+}
+
+inline uint32_t factorResidualColorU32(const FactorNode& factor, double scale,
+                                       float multiplier = 1.f) {
+    glm::vec4 c = factorResidualColor(factor, scale, multiplier);
     auto toByte = [](float v) {
         return static_cast<uint32_t>(glm::clamp(v, 0.f, 1.f) * 255.f + 0.5f);
     };

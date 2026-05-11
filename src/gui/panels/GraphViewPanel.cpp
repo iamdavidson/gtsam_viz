@@ -406,8 +406,7 @@ glm::vec2 GraphViewPanel::screenToWorld(ImVec2 s, ImVec2 origin) const {
 }
 
 ImU32 GraphViewPanel::errorColor(const FactorNode& fn) const {
-    return static_cast<ImU32>(residualColorU32(fn.error, residualStats_.scale, 1.f,
-                                               fn.errorFresh, fn.errorValid));
+    return static_cast<ImU32>(factorResidualColorU32(fn, residualStats_.scale));
 }
 
 ImU32 GraphViewPanel::typeColor(VariableType t) const {
@@ -415,7 +414,7 @@ ImU32 GraphViewPanel::typeColor(VariableType t) const {
     case VariableType::Pose2:  return IM_COL32(60,130,220,230);
     case VariableType::Pose3:  return IM_COL32(100,80,210,230);
     case VariableType::Point2: return IM_COL32(60,190,110,230);
-    case VariableType::Point3: return IM_COL32(40,160,130,230);
+    case VariableType::Point3: return IM_COL32(255,210,60,235);
     default:                   return IM_COL32(130,130,140,230);
     }
 }

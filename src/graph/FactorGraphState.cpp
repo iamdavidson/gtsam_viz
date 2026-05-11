@@ -356,6 +356,7 @@ FactorType FactorGraphState::detectFactorType(
     std::string tn = typeid(*rawFactor).name();
     if (tn.find("Prior")   != std::string::npos) return FactorType::Prior;
     if (tn.find("Between") != std::string::npos) return FactorType::Between;
+    if (tn.find("BearingRange") != std::string::npos) return FactorType::BearingRange;
     if (tn.find("Project") != std::string::npos) return FactorType::Projection;
     return FactorType::Custom;
 }

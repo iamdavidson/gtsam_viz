@@ -45,7 +45,13 @@ struct VariableNode {
 };
 
 // ─── Factor node ──────────────────────────────────────────────────────────────
-enum class FactorType { Prior, Between, Projection, Custom };
+enum class FactorType {
+    Prior        = 0,
+    Between      = 1,
+    Projection   = 2,
+    Custom       = 3,
+    BearingRange = 4,
+};
 enum class FactorErrorSource { None, Gtsam, Ipc, Stale };
 
 struct FactorNode {

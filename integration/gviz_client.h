@@ -93,7 +93,7 @@ constexpr uint8_t  PROTOCOL_VERSION = 2;
 
 enum class MsgType   : uint8_t { Replace=0, Append=1, ValuesOnly=2, Clear=3, PointCloud=4, Primitives=5 };
 enum class VarType   : uint8_t { Pose2=0, Pose3=1, Point2=2, Point3=3, Unknown=4 };
-enum class FactorType: uint8_t { Prior=0, Between=1, Projection=2, Custom=3 };
+enum class FactorType: uint8_t { Prior=0, Between=1, Projection=2, Custom=3, BearingRange=4 };
 enum class PrimType  : uint8_t { Line=0, Arrow=1, Box=2, Sphere=3, Cone=4, Cylinder=5, CoordFrame=6 };
 
 #pragma pack(push, 1)
@@ -518,6 +518,7 @@ private:
             uint8_t ft;
             if      (tn.find("Prior")   != std::string::npos) ft = (uint8_t)gviz_ipc::FactorType::Prior;
             else if (tn.find("Between") != std::string::npos) ft = (uint8_t)gviz_ipc::FactorType::Between;
+            else if (tn.find("BearingRange") != std::string::npos) ft = (uint8_t)gviz_ipc::FactorType::BearingRange;
             else if (tn.find("Project") != std::string::npos) ft = (uint8_t)gviz_ipc::FactorType::Projection;
             else                                               ft = (uint8_t)gviz_ipc::FactorType::Custom;
             float err = 0.f;

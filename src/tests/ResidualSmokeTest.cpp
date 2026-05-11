@@ -6,6 +6,7 @@
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
 #include <gtsam/nonlinear/Values.h>
 #include <gtsam/slam/BetweenFactor.h>
+#include <gtsam/sam/BearingRangeFactor.h>
 #include <gtsam/slam/PriorFactor.h>
 
 #include <cassert>
@@ -92,9 +93,37 @@ static void testVisualErrorRefresh() {
     assert(std::abs(state.factors().front().error - 0.25) < 1e-9);
 }
 
+static void testBearingRangeDetection() {
+    gtsam::Vector3 sigmas;
+    sigmas << 0.1, 0.1, 0.2;
+    auto noise = gtsam::noiseModel::Diagonal::Sigmas(sigmas);
+
+    gtsam::Key l0 = gtsam::Symbol('l', 0).key();
+    gtsam::Pose3 pose = gtsam::Pose3::Identity();
+    gtsam::Point3 landmark(2.0, 0.0, 0.0);
+
+    gtsam::NonlinearFactorGraph graph;
+    graph.emplace_shared<gtsam::BearingRangeFactor<gtsam::Pose3, gtsam::Point3>>(
+        X(0), l0, pose.bearing(landmark), pose.range(landmark), noise);
+
+    gtsam::Values values;
+    values.insert(X(0), pose);
+    values.insert(l0, landmark);
+
+    FactorGraphState state;
+    state.setGraph(graph, values);
+    assert(state.factors().front().type == FactorType::BearingRange);
+
+    bool sawPoint3 = false;
+    for (const auto& v : state.variables())
+        sawPoint3 = sawPoint3 || (v.key == l0 && v.type == VariableType::Point3);
+    assert(sawPoint3);
+}
+
 int main() {
     testResidualScale();
     testBatchValueUpdate();
     testVisualErrorRefresh();
+    testBearingRangeDetection();
     return 0;
 }

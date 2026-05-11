@@ -275,6 +275,7 @@ static gtsam_viz::FactorType toFactorType(gviz_ipc::FactorType t) {
     case gviz_ipc::FactorType::Prior:      return gtsam_viz::FactorType::Prior;
     case gviz_ipc::FactorType::Between:    return gtsam_viz::FactorType::Between;
     case gviz_ipc::FactorType::Projection: return gtsam_viz::FactorType::Projection;
+    case gviz_ipc::FactorType::BearingRange: return gtsam_viz::FactorType::BearingRange;
     default:                               return gtsam_viz::FactorType::Custom;
     }
 }
@@ -350,6 +351,7 @@ static const char* shortFactorLabel(gtsam_viz::FactorType type) {
     case gtsam_viz::FactorType::Prior:      return "Prior";
     case gtsam_viz::FactorType::Between:    return "Between";
     case gtsam_viz::FactorType::Projection: return "Proj";
+    case gtsam_viz::FactorType::BearingRange: return "BearingRange";
     default:                     return "Custom";
     }
 }

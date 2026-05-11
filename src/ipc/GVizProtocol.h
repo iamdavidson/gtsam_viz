@@ -71,6 +71,7 @@ enum class FactorType : uint8_t {
     Between    = 1,
     Projection = 2,
     Custom     = 3,
+    BearingRange = 4,
 };
 
 // ── Primitive type ────────────────────────────────────────────────────────────
